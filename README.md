@@ -36,24 +36,6 @@ This is a fully client-side app. There's no server, no database, and no
 account system; everything you track stays on the device and in the browser
 you're using it in.
 
-## Running locally
-
-```bash
-npm install
-npm run dev
-```
-
-Then open the local URL Vite prints (usually `http://localhost:5173`).
-
-## Building for production
-
-```bash
-npm run build
-```
-
-Outputs a static `dist/` folder you can deploy anywhere that serves static
-files (Netlify, Vercel, GitHub Pages, etc.). See `DEPLOY.md` for a Netlify
-walkthrough.
 
 ## Project structure
 
@@ -82,6 +64,8 @@ browser's `localStorage`, scoped to whatever URL you're using. That means:
 - Data does not sync across browsers or devices.
 - Clearing your browser's site data for that URL will erase your Sanctum
   data.
+
+  [https://sanctumdash.netlify.app/]
 
 ## License
 
