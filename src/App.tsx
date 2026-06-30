@@ -244,20 +244,159 @@ function ArcaneDivider({ children, className }: any) {
   );
 }
 
+/* ============================== Dragon Familiar ============================== */
+
+type DragonPose = "idle" | "reading" | "questing" | "focusing" | "tending" | "sleeping" | "cheer";
+
+const DRAGON_FLAVOR: Record<DragonPose, string[]> = {
+  idle: ["watching the candlelight", "curled on a warm stone", "tail flicking idly"],
+  reading: ["nose in a spellbook", "scanning old runes", "humming over the grimoire"],
+  questing: ["sharpening its claws", "eyeing the quest board", "pacing with anticipation"],
+  focusing: ["perched in silent vigil", "eyes half-closed, focused", "matching your breathing"],
+  tending: ["sniffing a vial of water", "stretching its wings", "counting your steps"],
+  sleeping: ["dozing through the fast", "snoring tiny puffs of smoke", "dreaming of feasts to come"],
+  cheer: ["delighted!", "doing a little spin", "very proud of you"],
+};
+
+function useDragonFlavor(pose: DragonPose) {
+  const [line, setLine] = useState(() => DRAGON_FLAVOR[pose][0]);
+  useEffect(() => {
+    const options = DRAGON_FLAVOR[pose];
+    setLine(options[Math.floor(Math.random() * options.length)]);
+  }, [pose]);
+  return line;
+}
+
+/** Pure SVG/CSS tiny dragon. `size` in px. `pose` changes posture/eye state. */
+function DragonSprite({ pose, size = 56, bounce = false }: { pose: DragonPose; size?: number; bounce?: boolean }) {
+  const bodyColor = "hsl(270 55% 46%)";
+  const bellyColor = "hsl(38 80% 60%)";
+  const wingColor = "hsl(270 60% 60%)";
+  const eyesClosed = pose === "sleeping" || pose === "focusing";
+  const tilt = pose === "reading" ? -8 : pose === "questing" ? 6 : 0;
+
+  return (
+    <div
+      className={cn("relative select-none", bounce && "dragon-bounce")}
+      style={{ width: size, height: size }}
+      title={pose}
+    >
+      <svg
+        viewBox="0 0 100 100"
+        width={size}
+        height={size}
+        style={{ transform: `rotate(${tilt}deg)`, transition: "transform 0.4s ease" }}
+        className={pose === "idle" ? "dragon-float" : pose === "focusing" ? "dragon-breathe" : ""}
+      >
+        {/* tail */}
+        <path d="M 30 78 Q 12 80 14 66 Q 16 76 30 72 Z" fill={bodyColor} />
+        {/* wings */}
+        <path d="M 38 40 Q 16 28 18 14 Q 34 22 44 38 Z" fill={wingColor} opacity={0.85} className={pose === "cheer" ? "dragon-wing-flap" : ""} />
+        <path d="M 62 40 Q 84 28 82 14 Q 66 22 56 38 Z" fill={wingColor} opacity={0.85} className={pose === "cheer" ? "dragon-wing-flap" : ""} />
+        {/* body */}
+        <ellipse cx="50" cy="62" rx="26" ry="22" fill={bodyColor} />
+        {/* belly */}
+        <ellipse cx="50" cy="68" rx="15" ry="12" fill={bellyColor} opacity={0.9} />
+        {/* head */}
+        <circle cx="50" cy="36" r="20" fill={bodyColor} />
+        {/* snout */}
+        <ellipse cx="50" cy="44" rx="10" ry="7" fill={bellyColor} opacity={0.9} />
+        {/* horns */}
+        <path d="M 38 22 L 34 10 L 42 20 Z" fill={bellyColor} />
+        <path d="M 62 22 L 66 10 L 58 20 Z" fill={bellyColor} />
+        {/* eyes */}
+        {eyesClosed ? (
+          <>
+            <path d="M 40 34 Q 44 37 48 34" stroke="#1a1530" strokeWidth="2.2" fill="none" strokeLinecap="round" />
+            <path d="M 52 34 Q 56 37 60 34" stroke="#1a1530" strokeWidth="2.2" fill="none" strokeLinecap="round" />
+          </>
+        ) : (
+          <>
+            <circle cx="43" cy="34" r="3.4" fill="#1a1530" />
+            <circle cx="57" cy="34" r="3.4" fill="#1a1530" />
+            <circle cx="44" cy="33" r="1" fill="white" />
+            <circle cx="58" cy="33" r="1" fill="white" />
+          </>
+        )}
+        {/* nostrils */}
+        <circle cx="46" cy="46" r="1" fill="#1a1530" opacity={0.6} />
+        <circle cx="54" cy="46" r="1" fill="#1a1530" opacity={0.6} />
+        {/* spine spikes */}
+        <path d="M 50 16 L 53 22 L 47 22 Z" fill={bellyColor} />
+        <path d="M 36 46 L 31 49 L 36 52 Z" fill={bellyColor} opacity={0.8} />
+        <path d="M 64 46 L 69 49 L 64 52 Z" fill={bellyColor} opacity={0.8} />
+        {/* sleeping zzz */}
+        {pose === "sleeping" && (
+          <text x="68" y="20" fontSize="10" fill="hsl(38 80% 65%)" fontFamily="Georgia, serif" className="dragon-zzz">z</text>
+        )}
+        {/* book for reading pose */}
+        {pose === "reading" && (
+          <rect x="38" y="76" width="24" height="4" rx="1" fill="hsl(38 80% 60%)" opacity={0.85} />
+        )}
+        {/* cheer sparkle */}
+        {pose === "cheer" && (
+          <text x="68" y="22" fontSize="11" fill="hsl(38 88% 62%)" className="dragon-sparkle">✦</text>
+        )}
+      </svg>
+    </div>
+  );
+}
+
+/** Small persistent corner companion shown on every page. */
+function DragonCorner({ pose, bounce }: { pose: DragonPose; bounce: boolean }) {
+  const line = useDragonFlavor(pose);
+  return (
+    <div
+      className="fixed bottom-4 right-4 z-30 flex items-end gap-2 pointer-events-none"
+      aria-hidden="true"
+    >
+      <div
+        className="hidden sm:block rounded-lg px-2.5 py-1.5 text-[11px] italic text-slate-300 mb-1"
+        style={{ background: "hsl(228 36% 10% / 0.85)", border: "1px solid hsl(228 25% 20%)", backdropFilter: "blur(4px)" }}
+      >
+        {line}
+      </div>
+      <div
+        className="rounded-full p-1.5"
+        style={{ background: "hsl(228 36% 10% / 0.7)", border: "1px solid hsl(38 88% 52% / 0.2)", boxShadow: "0 0 20px rgba(0,0,0,0.4)" }}
+      >
+        <DragonSprite pose={pose} size={48} bounce={bounce} />
+      </div>
+    </div>
+  );
+}
+
+/** Larger featured dragon for the dashboard. */
+function DragonFeature({ pose, bounce }: { pose: DragonPose; bounce: boolean }) {
+  const line = useDragonFlavor(pose);
+  return (
+    <div className="flex items-center gap-4 px-2">
+      <DragonSprite pose={pose} size={84} bounce={bounce} />
+      <div>
+        <div className="text-xs uppercase tracking-[0.15em] text-slate-500 font-semibold mb-0.5">Your familiar</div>
+        <div className="text-sm text-slate-300 italic">{line}</div>
+      </div>
+    </div>
+  );
+}
+
 /* ============================== Dashboard Page ============================== */
 
-function DashboardPage({ state }: { state: any }) {
+function DashboardPage({ state, dragonPose, dragonBounce }: { state: any; dragonPose: DragonPose; dragonBounce: boolean }) {
   const summary = computeSummary(state);
   const { text: greeting, sub: greetingSub } = getGreeting();
   const xpIntoLevel = summary.xp % 100;
 
   return (
     <div className="space-y-8 animate-in">
-      <header className="space-y-1">
-        <h1 className="text-4xl font-serif font-bold" style={{ color: "hsl(38 88% 62%)", textShadow: "0 0 40px hsl(38 88% 52% / 0.25)" }}>
-          {greeting}
-        </h1>
-        <p className="text-slate-400 italic">{greetingSub}</p>
+      <header className="flex items-start justify-between gap-4 flex-wrap">
+        <div className="space-y-1">
+          <h1 className="text-4xl font-serif font-bold" style={{ color: "hsl(38 88% 62%)", textShadow: "0 0 40px hsl(38 88% 52% / 0.25)" }}>
+            {greeting}
+          </h1>
+          <p className="text-slate-400 italic">{greetingSub}</p>
+        </div>
+        <DragonFeature pose={dragonPose} bounce={dragonBounce} />
       </header>
 
       <Card
@@ -1136,6 +1275,39 @@ export default function SanctumApp() {
   const [state, setState] = useSanctumStore();
   const [page, setPage] = useState("dashboard");
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [dragonBounce, setDragonBounce] = useState(false);
+  const prevCompletionsRef = useRef({ habits: 0, tasksDone: 0 });
+
+  // Trigger a cheer bounce whenever a habit completion or task completion count increases.
+  useEffect(() => {
+    const habitsCount = state.habitCompletions.length;
+    const tasksDoneCount = state.tasks.filter((t: Task) => t.status === "done").length;
+    const prev = prevCompletionsRef.current;
+    if (habitsCount > prev.habits || tasksDoneCount > prev.tasksDone) {
+      setDragonBounce(true);
+      const timeout = setTimeout(() => setDragonBounce(false), 750);
+      prevCompletionsRef.current = { habits: habitsCount, tasksDone: tasksDoneCount };
+      return () => clearTimeout(timeout);
+    }
+    prevCompletionsRef.current = { habits: habitsCount, tasksDone: tasksDoneCount };
+  }, [state.habitCompletions, state.tasks]);
+
+  const hasActiveFocus = false; // focus timer state is local to FocusPage; corner uses page-based pose below
+  const hasActiveFast = state.fastSessions.some((f: FastSession) => f.status === "active");
+
+  const dragonPose: DragonPose = dragonBounce
+    ? "cheer"
+    : page === "habits"
+    ? "reading"
+    : page === "tasks"
+    ? "questing"
+    : page === "focus"
+    ? "focusing"
+    : page === "health"
+    ? "tending"
+    : page === "fast"
+    ? (hasActiveFast ? "sleeping" : "idle")
+    : "idle";
 
   const renderPage = () => {
     switch (page) {
@@ -1144,7 +1316,7 @@ export default function SanctumApp() {
       case "focus": return <FocusPage state={state} setState={setState} />;
       case "health": return <HealthPage state={state} setState={setState} />;
       case "fast": return <FastingPage state={state} setState={setState} />;
-      default: return <DashboardPage state={state} />;
+      default: return <DashboardPage state={state} dragonPose={dragonPose} dragonBounce={dragonBounce} />;
     }
   };
 
@@ -1156,6 +1328,25 @@ export default function SanctumApp() {
         .animate-in { animation: fade-in 0.4s ease-out; }
         input::placeholder { color: #64748b; }
         input { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+
+        @keyframes dragon-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-4px); } }
+        .dragon-float { animation: dragon-float 3.2s ease-in-out infinite; }
+        @keyframes dragon-breathe { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.035); } }
+        .dragon-breathe { animation: dragon-breathe 2.6s ease-in-out infinite; }
+        @keyframes dragon-bounce-kf {
+          0% { transform: scale(1) translateY(0) rotate(0deg); }
+          25% { transform: scale(1.18) translateY(-10px) rotate(-6deg); }
+          50% { transform: scale(1.05) translateY(-2px) rotate(4deg); }
+          75% { transform: scale(1.12) translateY(-6px) rotate(-2deg); }
+          100% { transform: scale(1) translateY(0) rotate(0deg); }
+        }
+        .dragon-bounce { animation: dragon-bounce-kf 0.7s ease-out; }
+        @keyframes dragon-wing-flap-kf { 0%, 100% { opacity: 0.85; } 50% { opacity: 1; transform: scaleY(1.15); } }
+        .dragon-wing-flap { animation: dragon-wing-flap-kf 0.5s ease-in-out infinite; transform-origin: center; }
+        @keyframes dragon-zzz-kf { 0% { opacity: 0; transform: translateY(0); } 50% { opacity: 1; } 100% { opacity: 0; transform: translateY(-8px); } }
+        .dragon-zzz { animation: dragon-zzz-kf 2.4s ease-in-out infinite; }
+        @keyframes dragon-sparkle-kf { 0%, 100% { opacity: 0.4; transform: scale(0.9); } 50% { opacity: 1; transform: scale(1.2); } }
+        .dragon-sparkle { animation: dragon-sparkle-kf 0.8s ease-in-out infinite; }
       `}</style>
 
       {/* Ambient background */}
@@ -1240,6 +1431,8 @@ export default function SanctumApp() {
           <div className="max-w-4xl mx-auto">{renderPage()}</div>
         </div>
       </main>
+
+      <DragonCorner pose={dragonPose} bounce={dragonBounce} />
     </div>
   );
 }
