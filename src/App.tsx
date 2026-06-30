@@ -2097,11 +2097,13 @@ function JournalPage({ state, setState }: { state: any; setState: any }) {
 /* ============================== Lofi Player ============================== */
 
 const LOFI_STATIONS = [
-  { id: "jfKfPfyJRdk", label: "lofi hip hop radio — beats to relax/study to", by: "Lofi Girl" },
-  { id: "rUxyKA_-grg", label: "lofi hip hop radio — beats to sleep/chill to", by: "Lofi Girl" },
+  { id: "X4VbdwhkE10", label: "lofi hip hop radio — beats to relax/study to", by: "Lofi Girl" },
+  { id: "JD-kMIpDfnY", label: "lofi hip hop radio — beats to sleep/chill to", by: "Lofi Girl" },
   { id: "4xDzrJKXOOY", label: "synthwave radio — beats to chill/game to", by: "Lofi Girl" },
-  { id: "MVPTGNGiI-4", label: "coffee shop radio — jazz & lofi", by: "Coffee Shop Radio" },
+  { id: "E2vONfzoyRI", label: "jazz lofi radio — beats to chill/study to", by: "Lofi Girl" },
+  { id: "b4g8Uz7KP1A", label: "Lo-Fi Girl LIVE — cozy lofi hip hop 24/7", by: "Lo-Fi Girl LIVE" },
 ];
+
 
 function LofiPlayer({ compact = false }: { compact?: boolean }) {
   const [stationIdx, setStationIdx] = useState(0);
