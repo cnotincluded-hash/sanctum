@@ -84,14 +84,6 @@ slot, which immediately updates your combat stats. There's no deeper
 itemization beyond that — no sockets, enchanting, or set bonuses — by design,
 to keep the system readable at a glance.
 
-## The pixel art
-
-Character and enemy sprites are small, hand-authored pixel grids rendered as
-solid colored blocks — the same lightweight technique used for the dragon
-familiar elsewhere in the app. There are no image files or sprite sheets
-involved; everything is just CSS divs arranged in a grid, which keeps the
-whole feature dependency-free and consistent with Sanctum's existing visual
-language.
 
 ## Data and privacy
 
