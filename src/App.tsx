@@ -3,35 +3,52 @@ import {
   Trophy, CheckCircle, Brain, BookOpen, Flame, Plus, Book, Check, X, Trash2, Undo2,
   Droplets, Dumbbell, Pencil, Star, Heart, Zap, Sun, Moon, Coffee, Music, Leaf,
   CheckSquare, Play, Square, Pause, RotateCcw, Droplet, Footprints, Smile, Minus,
-  LayoutDashboard, Timer, Activity, XCircle, History, Menu, NotebookPen,
+  LayoutDashboard, Timer, Activity, XCircle, History, Menu, NotebookPen, LogOut,
+  Wifi, WifiOff, Loader,
 } from "lucide-react";
+import { supabase } from "./supabase";
+import type { SupabaseUser } from "./supabase";
 
 /* ============================== Storage helpers ============================== */
 
 const STORAGE_KEY = "sanctum-state-v1";
 
-function loadState() {
+function migrateState(parsed: any) {
+  if (!parsed) return null;
+  if (!parsed.journalEntries) parsed.journalEntries = [];
+  if (!parsed.familiar) parsed.familiar = { name: "Ember", color: "#a855f7", affection: 0 };
+  if (!parsed.dashboardWidgets) parsed.dashboardWidgets = ["habits", "tasks"];
+  if (!parsed.rpg) parsed.rpg = defaultRpgState();
+  if (!parsed.processedEssenceLog) parsed.processedEssenceLog = { habits: 0, tasks: 0, focusMs: 0 };
+  if (!parsed.theme) parsed.theme = "amethyst";
+  return parsed;
+}
+
+function loadStateLocal() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    if (!parsed.journalEntries) parsed.journalEntries = [];
-    if (!parsed.familiar) parsed.familiar = { name: "Ember", color: "#a855f7", affection: 0 };
-    if (!parsed.dashboardWidgets) parsed.dashboardWidgets = ["habits", "tasks"];
-    if (!parsed.rpg) parsed.rpg = defaultRpgState();
-    if (!parsed.processedEssenceLog) parsed.processedEssenceLog = { habits: 0, tasks: 0, focusMs: 0 };
-    if (!parsed.theme) parsed.theme = "amethyst";
-    return parsed;
-  } catch {
-    return null;
-  }
+    return raw ? migrateState(JSON.parse(raw)) : null;
+  } catch { return null; }
 }
-function saveState(state: any) {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  } catch {
-    /* ignore */
-  }
+
+function saveStateLocal(state: any) {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch { /* ignore */ }
+}
+
+async function loadStateRemote(userId: string) {
+  const { data, error } = await supabase
+    .from("sanctum_state")
+    .select("state")
+    .eq("user_id", userId)
+    .single();
+  if (error || !data) return null;
+  return migrateState(data.state);
+}
+
+async function saveStateRemote(userId: string, state: any) {
+  await supabase
+    .from("sanctum_state")
+    .upsert({ user_id: userId, state }, { onConflict: "user_id" });
 }
 
 /* ============================== Types ============================== */
@@ -238,14 +255,48 @@ function seedState() {
 
 /* ============================== App State Hook ============================== */
 
-function useSanctumStore() {
-  const [state, setState] = useState(() => loadState() ?? seedState());
+function useSanctumStore(user: SupabaseUser | null) {
+  const [state, setState] = useState(() => loadStateLocal() ?? seedState());
+  const [syncing, setSyncing] = useState(false);
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const initialLoadDone = useRef(false);
 
+  // On login: load remote state and merge it in (remote wins if it exists).
   useEffect(() => {
-    saveState(state);
-  }, [state]);
+    if (!user) { initialLoadDone.current = false; return; }
+    if (initialLoadDone.current) return;
+    setSyncing(true);
+    loadStateRemote(user.id).then((remote) => {
+      if (remote) {
+        setState(remote);
+        saveStateLocal(remote);
+      } else {
+        // First login on this account — push local state up to Supabase.
+        const local = loadStateLocal() ?? seedState();
+        saveStateRemote(user.id, local);
+      }
+      initialLoadDone.current = true;
+      setSyncing(false);
+    });
+  }, [user]);
 
-  return [state, setState] as const;
+  // Debounced save: always write to localStorage immediately,
+  // and write to Supabase 1.5s after the last change (avoids hammering the API).
+  const wrappedSetState = useCallback((updater: any) => {
+    setState((prev: any) => {
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      saveStateLocal(next);
+      if (user) {
+        if (saveTimer.current) clearTimeout(saveTimer.current);
+        saveTimer.current = setTimeout(() => {
+          saveStateRemote(user.id, next);
+        }, 1500);
+      }
+      return next;
+    });
+  }, [user]);
+
+  return [state, wrappedSetState, syncing] as const;
 }
 
 /* ============================== Derived calculations ============================== */
@@ -972,9 +1023,11 @@ function WidgetShell({
       onDragOver={(e) => { e.preventDefault(); onDragOver(index); }}
       onDrop={(e) => { e.preventDefault(); onDrop(); }}
       onDragEnd={onDragEnd}
-      className={cn("transition-opacity", isDragging && "opacity-40")}
+      className={cn("transition-opacity flex flex-col", isDragging && "opacity-40")}
+      style={{ height: "220px" }}
     >
-      <div className="flex items-center justify-between mb-2 px-1">
+      {/* Header row */}
+      <div className="flex items-center justify-between mb-2 px-1 shrink-0">
         <div className="flex items-center gap-1.5 text-xs uppercase tracking-[0.12em] font-semibold" style={{ color: meta.color }}>
           <span className="cursor-grab active:cursor-grabbing text-slate-600 hover:text-slate-400 -ml-1 mr-0.5" title="Drag to reorder">
             <svg width="10" height="14" viewBox="0 0 10 14" fill="currentColor"><circle cx="2" cy="2" r="1.3" /><circle cx="8" cy="2" r="1.3" /><circle cx="2" cy="7" r="1.3" /><circle cx="8" cy="7" r="1.3" /><circle cx="2" cy="12" r="1.3" /><circle cx="8" cy="12" r="1.3" /></svg>
@@ -985,7 +1038,10 @@ function WidgetShell({
           <X className="w-3.5 h-3.5" />
         </button>
       </div>
-      {children}
+      {/* Body: fills remaining height, clips overflow */}
+      <div className="flex-1 min-h-0 overflow-hidden rounded-xl">
+        {children}
+      </div>
     </div>
   );
 }
@@ -1036,9 +1092,9 @@ function HabitsWidget({ state, setState }: { state: any; setState: any }) {
   };
   if (state.habits.length === 0) return <EmptyWidgetNote text="No rituals yet — add some in the Grimoire." />;
   return (
-    <Card className="border-white/5" style={{ background: "hsl(228 34% 10%)" }}>
-      <CardContent className="p-3 space-y-1.5">
-        {state.habits.slice(0, 6).map((h: Habit) => {
+    <Card className="border-white/5 h-full" style={{ background: "hsl(228 34% 10%)" }}>
+      <CardContent className="p-3 space-y-1.5 overflow-y-auto h-full">
+        {state.habits.slice(0, 8).map((h: Habit) => {
           const done = completedToday.has(h.id);
           return (
             <button key={h.id} onClick={() => handleToggle(h.id, done)}
@@ -1062,8 +1118,8 @@ function TasksWidget({ state, setState }: { state: any; setState: any }) {
   };
   if (todo.length === 0) return <EmptyWidgetNote text="No active quests — the realm is at peace." />;
   return (
-    <Card className="border-white/5" style={{ background: "hsl(228 34% 10%)" }}>
-      <CardContent className="p-3 space-y-1.5">
+    <Card className="border-white/5 h-full" style={{ background: "hsl(228 34% 10%)" }}>
+      <CardContent className="p-3 space-y-1.5 overflow-y-auto h-full">
         {todo.map((t: Task) => {
           const ps = priorityStyle[t.priority as Priority] ?? priorityStyle.medium;
           return (
@@ -1085,8 +1141,8 @@ function FocusWidget({ state }: { state: any }) {
     .reduce((sum: number, s: FocusSession) => sum + s.durationMinutes, 0);
   const recent = state.focusSessions.slice(0, 3);
   return (
-    <Card className="border-white/5" style={{ background: "hsl(228 34% 10%)" }}>
-      <CardContent className="p-4 space-y-3">
+    <Card className="border-white/5 h-full" style={{ background: "hsl(228 34% 10%)" }}>
+      <CardContent className="p-4 space-y-3 h-full overflow-y-auto">
         <div className="flex items-center justify-between">
           <div>
             <div className="text-2xl font-serif font-bold text-sky-300">{todayMin} min</div>
@@ -1115,8 +1171,9 @@ function VitalityWidget({ state }: { state: any }) {
   const latestByType: Record<string, number> = {};
   for (const log of todayLogs) latestByType[log.type] = log.value;
   return (
-    <Card className="border-white/5" style={{ background: "hsl(228 34% 10%)" }}>
-      <CardContent className="p-3 grid grid-cols-5 gap-1.5">
+    <Card className="border-white/5 h-full" style={{ background: "hsl(228 34% 10%)" }}>
+      <CardContent className="p-3 h-full flex flex-col justify-center">
+        <div className="grid grid-cols-5 gap-1.5">
         {METRICS.map((m) => {
           const Icon = m.icon;
           const val = latestByType[m.key];
@@ -1129,6 +1186,7 @@ function VitalityWidget({ state }: { state: any }) {
             </div>
           );
         })}
+        </div>
       </CardContent>
     </Card>
   );
@@ -1149,8 +1207,8 @@ function FastWidget({ state }: { state: any }) {
   const targetMs = current.targetHours * 3_600_000;
   const pct = Math.min(1, elapsed / targetMs);
   return (
-    <Card className="border-white/5" style={{ background: "hsl(228 34% 10%)" }}>
-      <CardContent className="p-4 flex items-center gap-4">
+    <Card className="border-white/5 h-full" style={{ background: "hsl(228 34% 10%)" }}>
+      <CardContent className="p-4 h-full flex items-center gap-4">
         <CircleProgress pct={pct} size={56} strokeWidth={6} color="hsl(38 88% 50%)" />
         <div>
           <div className="text-sm font-semibold">{current.protocol} fast</div>
@@ -1182,14 +1240,13 @@ function JournalWidget({ state, setState }: { state: any; setState: any }) {
   };
 
   return (
-    <Card className="border-white/5" style={{ background: "hsl(228 34% 10%)" }}>
-      <CardContent className="p-3">
+    <Card className="border-white/5 h-full" style={{ background: "hsl(228 34% 10%)" }}>
+      <CardContent className="p-3 h-full flex flex-col">
         <textarea
           value={text}
           onChange={(e) => handleChange(e.target.value)}
           placeholder="Quick thought for today..."
-          rows={3}
-          className="w-full rounded-md border bg-transparent px-2.5 py-2 text-sm outline-none resize-none placeholder:text-slate-500"
+          className="flex-1 w-full rounded-md border bg-transparent px-2.5 py-2 text-sm outline-none resize-none placeholder:text-slate-500"
           style={{ borderColor: "hsl(228 25% 18%)", color: "inherit" }}
         />
       </CardContent>
@@ -1199,8 +1256,8 @@ function JournalWidget({ state, setState }: { state: any; setState: any }) {
 
 function EmptyWidgetNote({ text }: { text: string }) {
   return (
-    <Card className="border-dashed border-white/10 bg-transparent">
-      <CardContent className="p-4 text-center text-xs text-slate-500 italic">{text}</CardContent>
+    <Card className="border-dashed border-white/10 bg-transparent h-full">
+      <CardContent className="h-full flex items-center justify-center p-4 text-center text-xs text-slate-500 italic">{text}</CardContent>
     </Card>
   );
 }
@@ -2104,7 +2161,6 @@ const LOFI_STATIONS = [
   { id: "b4g8Uz7KP1A", label: "Lo-Fi Girl LIVE — cozy lofi hip hop 24/7", by: "Lo-Fi Girl LIVE" },
 ];
 
-
 function LofiPlayer({ compact = false }: { compact?: boolean }) {
   const [stationIdx, setStationIdx] = useState(0);
   const [playing, setPlaying] = useState(false);
@@ -2114,9 +2170,9 @@ function LofiPlayer({ compact = false }: { compact?: boolean }) {
   const watchUrl = `https://www.youtube.com/watch?v=${station.id}`;
 
   return (
-    <Card className="border-violet-400/15 relative overflow-hidden" style={{ background: "linear-gradient(135deg, hsl(228 38% 9%), hsl(270 30% 10%))" }}>
+    <Card className={cn("border-violet-400/15 relative overflow-hidden", compact && "h-full")} style={{ background: "linear-gradient(135deg, hsl(228 38% 9%), hsl(270 30% 10%))" }}>
       <div className="absolute top-0 left-0 right-0 h-px" style={{ background: "linear-gradient(90deg, transparent, hsl(270 60% 60% / 0.35), transparent)" }} />
-      <CardContent className={cn("space-y-3", compact ? "p-3" : "p-5")}>
+      <CardContent className={cn("space-y-3 overflow-y-auto", compact ? "p-3 h-full" : "p-5")}>
         <div className="flex items-center justify-between gap-2">
           <h3 className={cn("font-serif font-semibold flex items-center gap-2", compact ? "text-sm" : "text-lg")}>
             <Music className="w-4 h-4 text-violet-300" /> Lofi Study Stream
@@ -2571,6 +2627,130 @@ const PARTICLES = [
 ];
 
 /** Compact theme picker — row of swatch dots, always visible in the sidebar/header. */
+/* ============================== Auth Screen ============================== */
+
+function AuthScreen() {
+  const [email, setEmail] = useState("");
+  const [sent, setSent] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  const handleSend = async () => {
+    if (!email.trim()) { setError("Please enter your email."); return; }
+    setLoading(true);
+    setError("");
+    const { error: err } = await supabase.auth.signInWithOtp({
+      email: email.trim(),
+      options: { emailRedirectTo: window.location.origin },
+    });
+    setLoading(false);
+    if (err) { setError(err.message); return; }
+    setSent(true);
+  };
+
+  return (
+    <div className="min-h-screen flex items-center justify-center px-4"
+      style={{ background: "hsl(228 38% 7%)", fontFamily: "Georgia, 'Times New Roman', serif" }}>
+      <div className="w-full max-w-sm space-y-8">
+        {/* Logo */}
+        <div className="text-center">
+          <div className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4"
+            style={{ background: "linear-gradient(135deg, hsl(38 88% 30%), hsl(38 88% 52%))", boxShadow: "0 0 32px hsl(38 88% 52% / 0.4)" }}>
+            <span className="text-3xl">⚗</span>
+          </div>
+          <h1 className="text-4xl font-bold" style={{ color: "hsl(38 88% 60%)", textShadow: "0 0 40px hsl(38 88% 52% / 0.3)" }}>
+            Sanctum
+          </h1>
+          <p className="text-slate-400 italic mt-2 text-sm">Your arcane study awaits.</p>
+        </div>
+
+        {/* Card */}
+        <div className="rounded-2xl border p-7 space-y-5"
+          style={{ background: "hsl(228 36% 10%)", borderColor: "hsl(228 25% 18%)" }}>
+          {!sent ? (
+            <>
+              <div>
+                <h2 className="text-lg font-semibold text-white mb-1">Sign in</h2>
+                <p className="text-sm text-slate-400">Enter your email and we'll send you a magic link — no password needed.</p>
+              </div>
+              <div className="space-y-3">
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => { setEmail(e.target.value); setError(""); }}
+                  onKeyDown={(e) => e.key === "Enter" && handleSend()}
+                  placeholder="your@email.com"
+                  autoFocus
+                  className="w-full rounded-lg border px-3 py-2.5 text-sm outline-none bg-transparent text-white placeholder:text-slate-500"
+                  style={{ borderColor: "hsl(228 25% 22%)", fontFamily: "system-ui, sans-serif" }}
+                />
+                {error && <p className="text-red-400 text-sm">{error}</p>}
+                <button
+                  onClick={handleSend}
+                  disabled={loading}
+                  className="w-full h-10 rounded-lg font-semibold text-sm transition-all disabled:opacity-50"
+                  style={{ background: "linear-gradient(135deg, hsl(38 88% 40%), hsl(38 88% 52%))", color: "#1a1530" }}>
+                  {loading ? "Sending…" : "Send magic link ✦"}
+                </button>
+              </div>
+              <p className="text-xs text-slate-500 text-center">
+                First time? An account is created automatically.
+              </p>
+            </>
+          ) : (
+            <div className="text-center space-y-3 py-2">
+              <div className="text-4xl">✉️</div>
+              <h2 className="text-lg font-semibold text-white">Check your email</h2>
+              <p className="text-sm text-slate-400">
+                We sent a magic link to <span className="text-amber-300">{email}</span>. Click it to sign in — you can close this tab.
+              </p>
+              <button onClick={() => setSent(false)} className="text-xs text-slate-500 underline hover:text-slate-300 transition-colors">
+                Use a different email
+              </button>
+            </div>
+          )}
+        </div>
+
+        <p className="text-center text-xs text-slate-600">Your data syncs across all your devices.</p>
+      </div>
+    </div>
+  );
+}
+
+/** Small sync status pill shown in the sidebar. */
+function SyncIndicator({ syncing, user, onSignOut }: { syncing: boolean; user: SupabaseUser; onSignOut: () => void }) {
+  const [showMenu, setShowMenu] = useState(false);
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setShowMenu((v) => !v)}
+        className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs hover:bg-white/5 transition-colors"
+        style={{ color: syncing ? "#f59e0b" : "#34d399" }}>
+        {syncing
+          ? <Loader className="w-3 h-3 animate-spin shrink-0" />
+          : <Wifi className="w-3 h-3 shrink-0" />}
+        <span className="flex-1 text-left truncate" style={{ color: "#94a3b8" }}>
+          {user?.email}
+        </span>
+      </button>
+      {showMenu && (
+        <div className="absolute bottom-full mb-1 left-0 right-0 rounded-lg border p-1"
+          style={{ background: "hsl(228 36% 11%)", borderColor: "hsl(228 25% 18%)", boxShadow: "0 8px 24px rgba(0,0,0,0.5)" }}>
+          <div className="px-2.5 py-1.5 text-[11px] text-slate-500 border-b mb-1" style={{ borderColor: "hsl(228 25% 16%)" }}>
+            Signed in as<br />
+            <span className="text-slate-300 font-medium">{user?.email}</span>
+          </div>
+          <button
+            onClick={() => { setShowMenu(false); onSignOut(); }}
+            className="w-full flex items-center gap-2 px-2.5 py-2 rounded-md text-xs text-red-400 hover:bg-red-500/10 transition-colors">
+            <LogOut className="w-3.5 h-3.5" /> Sign out
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ThemeSwitcher({ activeTheme, onSelect, compact = false }: { activeTheme: ThemeId; onSelect: (id: ThemeId) => void; compact?: boolean }) {
   const [open, setOpen] = useState(false);
   const current = THEMES[activeTheme] ?? THEMES.amethyst;
@@ -2590,24 +2770,27 @@ function ThemeSwitcher({ activeTheme, onSelect, compact = false }: { activeTheme
   return (
     <div className="relative">
       <button onClick={() => setOpen((v) => !v)}
-        className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg border text-xs transition-colors hover:bg-white/5"
+        className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg border text-xs transition-colors hover:bg-white/5 overflow-hidden"
         style={{ borderColor: `hsl(${current.vars.border})` }}>
-        <span className="w-3.5 h-3.5 rounded-full shrink-0" style={{ background: current.swatch }} />
-        <span className="text-slate-300 flex-1 text-left">{current.label}</span>
-        <span className="text-slate-500 text-[10px]">Theme</span>
+        <span className="w-3 h-3 rounded-full shrink-0" style={{ background: current.swatch }} />
+        <span className="text-slate-300 flex-1 text-left truncate">{current.label}</span>
+        <span className="text-slate-500 text-[10px] shrink-0">Theme</span>
       </button>
       {open && (
-        <div className="absolute z-30 bottom-full mb-1.5 w-full rounded-lg border p-1.5 grid gap-1"
-          style={{ background: `hsl(${current.vars.bgPanel})`, borderColor: `hsl(${current.vars.border})`, boxShadow: "0 8px 24px rgba(0,0,0,0.5)" }}>
+        <div
+          className="absolute z-30 bottom-full mb-1.5 rounded-lg border p-1 grid gap-0.5"
+          style={{
+            left: 0, right: 0, // stay inside the parent container width
+            background: `hsl(${current.vars.bgPanel})`,
+            borderColor: `hsl(${current.vars.border})`,
+            boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
+          }}>
           {(Object.values(THEMES) as ThemePalette[]).map((t) => (
             <button key={t.id} onClick={() => { onSelect(t.id); setOpen(false); }}
-              className="flex items-center gap-2.5 px-2.5 py-2 rounded-md text-left hover:bg-white/5 transition-colors">
-              <span className="w-4 h-4 rounded-full shrink-0" style={{ background: t.swatch, boxShadow: activeTheme === t.id ? `0 0 8px hsl(${t.vars.accent} / 0.6)` : "none" }} />
-              <div className="min-w-0">
-                <div className={cn("text-xs font-medium", activeTheme === t.id ? "text-white" : "text-slate-300")}>{t.label}</div>
-                <div className="text-[10px] text-slate-500 truncate">{t.description}</div>
-              </div>
-              {activeTheme === t.id && <Check className="w-3 h-3 ml-auto shrink-0 text-slate-400" />}
+              className="flex items-center gap-2 px-2 py-1.5 rounded-md text-left hover:bg-white/5 transition-colors w-full overflow-hidden">
+              <span className="w-3 h-3 rounded-full shrink-0" style={{ background: t.swatch, boxShadow: activeTheme === t.id ? `0 0 6px hsl(${t.vars.accent} / 0.6)` : "none" }} />
+              <span className={cn("text-xs truncate flex-1", activeTheme === t.id ? "text-white font-medium" : "text-slate-300")}>{t.label}</span>
+              {activeTheme === t.id && <Check className="w-3 h-3 shrink-0 text-slate-400" />}
             </button>
           ))}
         </div>
@@ -2617,13 +2800,49 @@ function ThemeSwitcher({ activeTheme, onSelect, compact = false }: { activeTheme
 }
 
 export default function SanctumApp() {
-  const [state, setState] = useSanctumStore();
+  // ── Auth state ──────────────────────────────────────────────────────────────
+  const [user, setUser] = useState<SupabaseUser | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+
+  useEffect(() => {
+    // Get initial session
+    supabase.auth.getSession().then(({ data }) => {
+      setUser(data.session?.user ?? null);
+      setAuthLoading(false);
+    });
+    // Listen for login/logout/magic-link events
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
+    setUser(null);
+  };
+
+  // ── App state ────────────────────────────────────────────────────────────────
+  const [state, setState, syncing] = useSanctumStore(user);
   const [page, setPage] = useState("dashboard");
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [dragonBounce, setDragonBounce] = useState(false);
   const [petted, setPetted] = useState(false);
   const prevCompletionsRef = useRef({ habits: 0, tasksDone: 0 });
   const theme = THEMES[(state.theme as ThemeId) ?? "amethyst"] ?? THEMES.amethyst;
+
+  // ── Auth gates ───────────────────────────────────────────────────────────────
+  if (authLoading) {
+    return (
+      <div style={{ background: "hsl(228 38% 7%)", minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Georgia, serif", color: "hsl(38 88% 58%)" }}>
+        <div style={{ textAlign: "center" }}>
+          <div style={{ fontSize: "2rem", marginBottom: "0.5rem" }}>⚗</div>
+          <div style={{ fontSize: "0.75rem", color: "#64748b" }}>awakening the study…</div>
+        </div>
+      </div>
+    );
+  }
+  if (!user) return <AuthScreen />;
 
   // Trigger a cheer bounce whenever a habit completion or task completion count increases.
   useEffect(() => {
@@ -2781,7 +3000,8 @@ export default function SanctumApp() {
             );
           })}
         </nav>
-        <div className="px-3 pb-3">
+        <div className="px-3 pb-3 space-y-2">
+          <SyncIndicator syncing={syncing} user={user} onSignOut={handleSignOut} />
           <ThemeSwitcher activeTheme={state.theme} onSelect={(id) => setState((s: any) => ({ ...s, theme: id }))} />
         </div>
         <div className="p-4 border-t mt-auto" style={{ borderColor: `hsl(${theme.vars.border} / 0.4)` }}>
