@@ -2641,7 +2641,7 @@ function AuthScreen() {
     setError("");
     const { error: err } = await supabase.auth.signInWithOtp({
       email: email.trim(),
-      options: { emailRedirectTo: window.location.origin },
+      options: { emailRedirectTo: window.location.pathname },
     });
     setLoading(false);
     if (err) { setError(err.message); return; }
