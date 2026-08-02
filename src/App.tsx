@@ -2641,7 +2641,7 @@ function AuthScreen() {
     setError("");
     const { error: err } = await supabase.auth.signInWithOtp({
       email: email.trim(),
-      options: { emailRedirectTo: window.location.origin },
+      options: { emailRedirectTo: window.location.origin + window.location.pathname },
     });
     setLoading(false);
     if (err) { setError(err.message); return; }
@@ -2831,19 +2831,6 @@ export default function SanctumApp() {
   const prevCompletionsRef = useRef({ habits: 0, tasksDone: 0 });
   const theme = THEMES[(state.theme as ThemeId) ?? "amethyst"] ?? THEMES.amethyst;
 
-  // ── Auth gates ───────────────────────────────────────────────────────────────
-  if (authLoading) {
-    return (
-      <div style={{ background: "hsl(228 38% 7%)", minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Georgia, serif", color: "hsl(38 88% 58%)" }}>
-        <div style={{ textAlign: "center" }}>
-          <div style={{ fontSize: "2rem", marginBottom: "0.5rem" }}>⚗</div>
-          <div style={{ fontSize: "0.75rem", color: "#64748b" }}>awakening the study…</div>
-        </div>
-      </div>
-    );
-  }
-  if (!user) return <AuthScreen />;
-
   // Trigger a cheer bounce whenever a habit completion or task completion count increases.
   useEffect(() => {
     const habitsCount = state.habitCompletions.length;
@@ -2883,6 +2870,21 @@ export default function SanctumApp() {
       };
     });
   }, [state.habitCompletions, state.tasks, state.focusSessions, setState]);
+
+  // ── Auth gates ──────────────────────────────────────────────────────────────
+  // IMPORTANT: these early returns must come AFTER every hook above, or React
+  // throws error #310 (hook count mismatch between renders).
+  if (authLoading) {
+    return (
+      <div style={{ background: "hsl(228 38% 7%)", minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Georgia, serif", color: "hsl(38 88% 58%)" }}>
+        <div style={{ textAlign: "center" }}>
+          <div style={{ fontSize: "2rem", marginBottom: "0.5rem" }}>⚗</div>
+          <div style={{ fontSize: "0.75rem", color: "#64748b" }}>awakening the study…</div>
+        </div>
+      </div>
+    );
+  }
+  if (!user) return <AuthScreen />;
 
   const hasActiveFast = state.fastSessions.some((f: FastSession) => f.status === "active");
 
