@@ -1,30 +1,47 @@
+<img src="assets/app-icon.png" width="96" alt="Sanctum icon">
+
 # Sanctum
 
 A cozy personal productivity and health dashboard — part wizard's study, part
 RPG for a bit of fun. Track habits, focus sessions, tasks, fasting windows, and
 health metrics while leveling up an XP/progression system.
 
-![Sanctum](https://img.shields.io/badge/built%20with-React%20%2B%20Vite-7c3aed)
-![License](https://img.shields.io/badge/license-personal%20use-555)
+Use it on the web at **https://cnotincluded-hash.github.io/sanctum/**, or
+install the desktop app for Windows and Mac. Both sign in to the same account,
+so your study is the same everywhere.
+
+A Caffeine Not Included tool.
 
 ## What it does
 
-Sanctum has six sections, themed as an arcane study:
-
 | Section | Name in app | What it tracks |
 |---|---|---|
-| Overview | **Sanctum** | Level/XP bar, today's stats, active streaks |
+| Overview | **Sanctum** | Level/XP, today's stats, active streaks, your widgets and your dragon familiar |
 | Habits | **Grimoire** | Daily/weekly rituals with color-coded streaks |
 | Tasks | **Quests** | To-dos with priority, category, and completion |
 | Focus | **Focus** | Pomodoro-style timer with session history |
 | Health | **Vitality** | Daily water, sleep, steps, mood, and exercise |
 | Fasting | **Fast** | Intermittent fasting windows (16:8, 18:6, 20:4, 24h, custom) |
+| Journal | **Journal** | One entry a day with a mood |
+| Music | **Lofi** | Live lofi streams to study to |
+| RPG | **Ascent** | A character and familiar that grow from your real progress — see `ASCENT.md` |
 
 Completing habits, finishing tasks, and logging focus minutes all earn XP and
 level you up — `(habit completions × 10) + (focus minutes × 0.5) + (tasks
 done × 20)`, leveling every 100 XP.
 
-## Tech stack
+## Desktop app
+
+### Download
+
+Get the latest version from the [Releases](../../releases) page:
+
+| Your computer | File to download |
+| --- | --- |
+| Windows 10 or 11 | `Sanctum_x.x.x_x64_en-US.msi` (or the `-setup.exe`) |
+| Mac, Apple Silicon or Intel, macOS 11 or later | `Sanctum_x.x.x_universal.dmg` |
+
+### Install
 
 - React 18 + TypeScript
 - Vite
@@ -32,57 +49,95 @@ done × 20)`, leveling every 100 XP.
 - [lucide-react](https://lucide.dev/) for icons
 - No backend — all data is stored in the browser's `localStorage` or a folder if the app in being used.
 
-This is a fully client-side app. There's no server, no database, and no
-account system; everything you track stays on the device and in the browser
-you're using it in.
+### Signing in
 
-## Running locally
+Enter your email and Sanctum sends you a sign-in email. In the desktop app,
+type the **code** from that email (the link in it only opens the website).
+
+The code only appears in the email once the Supabase email template includes
+it — a one-time setup:
+
+1. In Supabase, open **Authentication → Emails → Templates → Magic Link**
+   (in older dashboards: **Authentication → Email Templates**).
+2. Add a line with the code to the message body, for example:
+   ```html
+   <p>Or type this code in Sanctum: <strong>{{ .Token }}</strong></p>
+   ```
+3. Click **Save**.
+
+The website accepts both the link and the code.
+
+## Your data
+
+Your study is saved to your Sanctum account (Supabase) and on each device you
+use, so the website, your phone and the desktop app all show the same thing.
+
+- **Every change** is saved on the device straight away and to your account a
+  moment later. The account icon at the bottom of the sidebar shows whether
+  the latest change has reached your account.
+- **Offline.** On a device you've used before, Sanctum opens with what's on
+  that device and sends your changes when the connection comes back.
+- **A new device** waits until it has loaded your account's data before it
+  opens, so it can never replace your data with a blank study.
+- **Several devices.** When you switch back to Sanctum, it picks up changes
+  made elsewhere. If two devices change things while both are offline, the
+  most recent change wins.
+- **Signing out** sends any unsent change first.
+
+## Run and build it yourself
+
+You need [Node.js](https://nodejs.org) 20 or newer.
 
 ```bash
 npm install
-npm run dev
+npm run dev        # the website at http://localhost:5173/sanctum/
+npm run build      # the website's files in dist/ (deployed by deploy.yml)
 ```
 
-Then open the local URL Vite prints (usually `http://localhost:5173`).
-
-## Building for production
+For the desktop app you also need [Rust](https://rustup.rs) and the
+[Tauri prerequisites](https://v2.tauri.app/start/prerequisites/) for your
+system (Microsoft C++ Build Tools on Windows, Xcode Command Line Tools on Mac).
 
 ```bash
-npm run build
+npm run desktop        # run the desktop app from this folder
+npm run desktop:build  # make an installer in src-tauri/target/release/bundle
 ```
 
-Outputs a static `dist/` folder you can deploy anywhere that serves static
-files (Netlify, Vercel, GitHub Pages, etc.). See `DEPLOY.md` for a Netlify
-walkthrough.
+### Release a new desktop version
+
+The **Build desktop installers** workflow builds the Windows and Mac
+installers on GitHub and puts them in a draft release. The website keeps
+deploying on every push to `main` as before.
+
+1. Raise the version in `package.json`, `src-tauri/tauri.conf.json` and
+   `src-tauri/Cargo.toml`, for example to `1.1.0`.
+2. Commit, then either open **Actions → Build desktop installers → Run
+   workflow**, or push a tag: `git tag v1.1.0 && git push --tags`.
+3. When both builds are green, open **Releases**, check the draft and click
+   **Publish release**.
 
 ## Project structure
 
-```
-src/
-  App.tsx        — entire app: pages, components, state, styling
-  main.tsx       — React entry point
-  index.css      — Tailwind directives
-index.html
-tailwind.config.js
-postcss.config.js
-vite.config.ts
-```
+| Path | What it is |
+| --- | --- |
+| `src/App.tsx` | The whole app: pages, components, state and styling |
+| `src/sync.ts` | The rules for keeping devices and your account in step |
+| `src/desktop.ts` | The few differences in the desktop app (links open in your browser) |
+| `src/supabase.ts` | The connection to your Supabase project |
+| `vite.config.ts` | Builds the website for `/sanctum/` and the desktop app for its own root |
+| `src-tauri/` | The desktop app shell: window, icons, installer settings (`tauri.conf.json`) |
+| `assets/app-icon.svg` | The app icon. After editing, export a 1024 px PNG to `assets/app-icon.png` and run `npx tauri icon assets/app-icon.png` |
+| `.github/workflows/deploy.yml` | Publishes the website to GitHub Pages |
+| `.github/workflows/build-desktop.yml` | Builds the Windows and Mac installers |
 
-Everything — pages, UI primitives, and the in-memory data store — currently
-lives in `App.tsx` as a single file by design, ported directly from a larger
-multi-package Replit project to make it easy to drop into tools like
-StackBlitz or CodeSandbox without managing a workspace.
+## Tech stack
 
-## Data & privacy
-
-All habits, tasks, focus sessions, health logs, and fasts are stored in your
-browser's `localStorage`, scoped to whatever URL you're using. That means:
-
-- Nothing is sent to a server.
-- Data does not sync across browsers or devices.
-- Clearing your browser's site data for that URL will erase your Sanctum
-  data.
+React 18, TypeScript, Vite, Tailwind CSS and [lucide-react](https://lucide.dev/)
+icons; [Supabase](https://supabase.com) for sign-in and sync; [Tauri](https://tauri.app)
+for the desktop app.
 
 ## License
 
 Personal project — not licensed for redistribution or commercial use.
+
+© Caffeine Not Included

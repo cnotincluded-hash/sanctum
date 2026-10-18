@@ -8,6 +8,8 @@ import {
 } from "lucide-react";
 import { supabase } from "./supabase";
 import type { SupabaseUser } from "./supabase";
+import { IS_DESKTOP } from "./desktop";
+import { chooseStart, isNewer, canStartOffline } from "./sync";
 
 /* ============================== Storage helpers ============================== */
 
@@ -35,20 +37,34 @@ function saveStateLocal(state: any) {
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch { /* ignore */ }
 }
 
-async function loadStateRemote(userId: string) {
-  const { data, error } = await supabase
-    .from("sanctum_state")
-    .select("state")
-    .eq("user_id", userId)
-    .single();
-  if (error || !data) return null;
-  return migrateState(data.state);
+/** The account's saved copy. `ok: false` means Supabase couldn't be reached, which is
+ *  NOT the same as "no saved copy yet" — the two must never be confused, or a new or
+ *  offline device would upload its blank copy over the real data. */
+async function loadStateRemote(userId: string): Promise<{ ok: true; state: any | null } | { ok: false }> {
+  try {
+    const query = supabase
+      .from("sanctum_state")
+      .select("state")
+      .eq("user_id", userId)
+      .maybeSingle();
+    const timedOut = new Promise<null>((resolve) => setTimeout(() => resolve(null), 8000));
+    const result = await Promise.race([query, timedOut]);
+    if (!result || result.error) return { ok: false };
+    return { ok: true, state: result.data ? migrateState(result.data.state) : null };
+  } catch {
+    return { ok: false };
+  }
 }
 
-async function saveStateRemote(userId: string, state: any) {
-  await supabase
-    .from("sanctum_state")
-    .upsert({ user_id: userId, state }, { onConflict: "user_id" });
+async function saveStateRemote(userId: string, state: any): Promise<boolean> {
+  try {
+    const { error } = await supabase
+      .from("sanctum_state")
+      .upsert({ user_id: userId, state }, { onConflict: "user_id" });
+    return !error;
+  } catch {
+    return false;
+  }
 }
 
 /* ============================== Types ============================== */
@@ -255,48 +271,143 @@ function seedState() {
 
 /* ============================== App State Hook ============================== */
 
+type SyncStatus = "syncing" | "synced" | "offline";
+
+/**
+ * App state, kept on this device and in the signed-in account.
+ * - Every change is saved on this device at once and to the account 1.5s later.
+ * - Nothing is sent to the account until this device has read the account's copy,
+ *   so a new install or an offline start can never overwrite real data.
+ * - Changes made offline are uploaded once the account can be reached again.
+ * - Switching back to the window picks up changes made on another device.
+ * `ready` stays false until the account's copy has loaded; offline, a device that
+ * already holds this account's data opens with it instead of waiting.
+ */
 function useSanctumStore(user: SupabaseUser | null) {
-  const [state, setState] = useState(() => loadStateLocal() ?? seedState());
-  const [syncing, setSyncing] = useState(false);
+  const [state, setState] = useState<any>(() => loadStateLocal() ?? seedState());
+  const [status, setStatus] = useState<SyncStatus>("syncing");
+  const [ready, setReady] = useState(false);
+
+  const userId = user?.id ?? null;
+  const userIdRef = useRef<string | null>(userId);
+  userIdRef.current = userId;
+  const latest = useRef<any>(state); // newest state, for timers and focus checks
+  const remoteReady = useRef(false); // true once the account's copy has been read
+  const pushedAt = useRef(0); // _changedAt of the copy last saved to the account
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const initialLoadDone = useRef(false);
 
-  // On login: load remote state and merge it in (remote wins if it exists).
-  useEffect(() => {
-    if (!user) { initialLoadDone.current = false; return; }
-    if (initialLoadDone.current) return;
-    setSyncing(true);
-    loadStateRemote(user.id).then((remote) => {
-      if (remote) {
-        setState(remote);
-        saveStateLocal(remote);
-      } else {
-        // First login on this account — push local state up to Supabase.
-        const local = loadStateLocal() ?? seedState();
-        saveStateRemote(user.id, local);
-      }
-      initialLoadDone.current = true;
-      setSyncing(false);
-    });
-  }, [user]);
+  const pushNow = useCallback(async () => {
+    saveTimer.current = null;
+    const uid = userIdRef.current;
+    if (!uid || !remoteReady.current) return;
+    const snapshot = latest.current;
+    setStatus("syncing");
+    const ok = await saveStateRemote(uid, snapshot);
+    if (uid !== userIdRef.current) return;
+    if (ok) {
+      pushedAt.current = Math.max(pushedAt.current, snapshot._changedAt ?? 0);
+      setStatus("synced");
+    } else {
+      setStatus("offline");
+      // Try again shortly unless a newer change already queued its own save.
+      if (!saveTimer.current) saveTimer.current = setTimeout(pushNow, 15000);
+    }
+  }, []);
 
-  // Debounced save: always write to localStorage immediately,
-  // and write to Supabase 1.5s after the last change (avoids hammering the API).
-  const wrappedSetState = useCallback((updater: any) => {
+  // Change the state: stamps the change with the time and the account it belongs to.
+  const setAppState = useCallback((updater: any) => {
     setState((prev: any) => {
       const next = typeof updater === "function" ? updater(prev) : updater;
-      saveStateLocal(next);
-      if (user) {
-        if (saveTimer.current) clearTimeout(saveTimer.current);
-        saveTimer.current = setTimeout(() => {
-          saveStateRemote(user.id, next);
-        }, 1500);
-      }
-      return next;
+      if (next === prev) return prev;
+      return { ...next, _changedAt: Date.now(), _owner: userIdRef.current ?? next._owner };
     });
-  }, [user]);
+  }, []);
 
-  return [state, wrappedSetState, syncing] as const;
+  // Save every change on this device, and queue it for the account.
+  useEffect(() => {
+    latest.current = state;
+    saveStateLocal(state);
+    if (remoteReady.current && userIdRef.current && (state._changedAt ?? 0) > pushedAt.current) {
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+      saveTimer.current = setTimeout(pushNow, 1500);
+    }
+  }, [state, pushNow]);
+
+  const adoptRemote = useCallback((remote: any, uid: string) => {
+    const owned = { ...remote, _owner: uid };
+    pushedAt.current = remote._changedAt ?? 0;
+    latest.current = owned;
+    setState(owned);
+  }, []);
+
+  // After sign-in: read the account's copy (retrying while offline), then decide what to keep.
+  useEffect(() => {
+    remoteReady.current = false;
+    pushedAt.current = 0;
+    if (saveTimer.current) { clearTimeout(saveTimer.current); saveTimer.current = null; }
+    if (!userId) { setReady(false); return; }
+
+    let cancelled = false;
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    setReady(false);
+    setStatus("syncing");
+
+    const attempt = async (delay: number) => {
+      const res = await loadStateRemote(userId);
+      if (cancelled) return;
+      if (!res.ok) {
+        setStatus("offline");
+        if (canStartOffline(latest.current, userId)) setReady(true);
+        retry = setTimeout(() => attempt(Math.min(delay * 2, 60000)), delay);
+        return;
+      }
+      const local = latest.current;
+      const choice = chooseStart(local, res.state, userId);
+      remoteReady.current = true;
+      if (choice.use === "remote") {
+        adoptRemote(res.state, userId);
+        setStatus("synced");
+      } else {
+        const base = choice.use === "local" ? local : seedState();
+        const stamped = { ...base, _owner: userId, _changedAt: Math.max(Date.now(), (base._changedAt ?? 0) + 1) };
+        setState(stamped); // the save effect uploads it
+      }
+      setReady(true);
+    };
+    attempt(5000);
+    return () => { cancelled = true; if (retry) clearTimeout(retry); };
+  }, [userId, adoptRemote]);
+
+  // Coming back to the window: pick up anything saved from another device meanwhile.
+  useEffect(() => {
+    if (!userId) return;
+    let lastCheck = 0;
+    const check = async () => {
+      if (document.visibilityState !== "visible") return;
+      if (!remoteReady.current || saveTimer.current || Date.now() - lastCheck < 10000) return;
+      lastCheck = Date.now();
+      const before = latest.current;
+      const res = await loadStateRemote(userId);
+      // Skip if anything changed here while we were asking.
+      if (!res.ok || !res.state || latest.current !== before || saveTimer.current) return;
+      if (isNewer(res.state, before)) adoptRemote(res.state, userId);
+    };
+    window.addEventListener("focus", check);
+    document.addEventListener("visibilitychange", check);
+    return () => {
+      window.removeEventListener("focus", check);
+      document.removeEventListener("visibilitychange", check);
+    };
+  }, [userId, adoptRemote]);
+
+  /** Send any queued change right away (used before signing out). */
+  const flush = useCallback(async () => {
+    if (!saveTimer.current) return;
+    clearTimeout(saveTimer.current);
+    await pushNow();
+  }, [pushNow]);
+
+  return [state, setAppState, status, ready, flush] as const;
 }
 
 /* ============================== Derived calculations ============================== */
@@ -2634,6 +2745,9 @@ function AuthScreen() {
   const [sent, setSent] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [code, setCode] = useState("");
+  const [verifying, setVerifying] = useState(false);
+  const [resent, setResent] = useState(false);
 
   const handleSend = async () => {
     if (!email.trim()) { setError("Please enter your email."); return; }
@@ -2641,11 +2755,24 @@ function AuthScreen() {
     setError("");
     const { error: err } = await supabase.auth.signInWithOtp({
       email: email.trim(),
-      options: { emailRedirectTo: window.location.origin + window.location.pathname },
+      // A sign-in link can only bring you back to the website; the desktop app signs in with the code.
+      options: IS_DESKTOP ? {} : { emailRedirectTo: window.location.origin + window.location.pathname },
     });
     setLoading(false);
     if (err) { setError(err.message); return; }
+    if (sent) setResent(true);
     setSent(true);
+  };
+
+  const handleVerify = async () => {
+    const token = code.replace(/\s/g, "");
+    if (!/^\d{6,10}$/.test(token)) { setError("Enter the code from the email — it's a row of digits."); return; }
+    setVerifying(true);
+    setError("");
+    const { error: err } = await supabase.auth.verifyOtp({ email: email.trim(), token, type: "email" });
+    setVerifying(false);
+    // On success the session listener in SanctumApp opens the study.
+    if (err) setError("That code didn't work. Check it, or send a new email — each code works only once.");
   };
 
   return (
@@ -2671,11 +2798,17 @@ function AuthScreen() {
             <>
               <div>
                 <h2 className="text-lg font-semibold text-white mb-1">Sign in</h2>
-                <p className="text-sm text-slate-400">Enter your email and we'll send you a magic link — no password needed.</p>
+                <p className="text-sm text-slate-400">
+                  {IS_DESKTOP
+                    ? "Enter your email and we'll send you a sign-in code — no password needed."
+                    : "Enter your email and we'll send you a sign-in link and code — no password needed."}
+                </p>
               </div>
               <div className="space-y-3">
                 <input
                   type="email"
+                  aria-label="Email"
+                  autoComplete="email"
                   value={email}
                   onChange={(e) => { setEmail(e.target.value); setError(""); }}
                   onKeyDown={(e) => e.key === "Enter" && handleSend()}
@@ -2688,9 +2821,9 @@ function AuthScreen() {
                 <button
                   onClick={handleSend}
                   disabled={loading}
-                  className="w-full h-10 rounded-lg font-semibold text-sm transition-all disabled:opacity-50"
+                  className="w-full h-11 rounded-lg font-semibold text-sm transition-all disabled:opacity-50"
                   style={{ background: "linear-gradient(135deg, hsl(38 88% 40%), hsl(38 88% 52%))", color: "#1a1530" }}>
-                  {loading ? "Sending…" : "Send magic link ✦"}
+                  {loading ? "Sending…" : "Send sign-in email ✦"}
                 </button>
               </div>
               <p className="text-xs text-slate-500 text-center">
@@ -2698,15 +2831,50 @@ function AuthScreen() {
               </p>
             </>
           ) : (
-            <div className="text-center space-y-3 py-2">
-              <div className="text-4xl">✉️</div>
-              <h2 className="text-lg font-semibold text-white">Check your email</h2>
-              <p className="text-sm text-slate-400">
-                We sent a magic link to <span className="text-amber-300">{email}</span>. Click it to sign in — you can close this tab.
-              </p>
-              <button onClick={() => setSent(false)} className="text-xs text-slate-500 underline hover:text-slate-300 transition-colors">
-                Use a different email
-              </button>
+            <div className="space-y-4">
+              <div className="text-center space-y-2">
+                <div className="text-4xl">✉️</div>
+                <h2 className="text-lg font-semibold text-white">Check your email</h2>
+                <p className="text-sm text-slate-400">
+                  {IS_DESKTOP ? "We sent a sign-in code to " : "We sent a sign-in link and code to "}
+                  <span className="text-amber-300">{email}</span>.
+                  {IS_DESKTOP ? " Type the code here." : " Click the link, or type the code here."}
+                </p>
+              </div>
+              <div className="space-y-3">
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  aria-label="Sign-in code"
+                  value={code}
+                  onChange={(e) => { setCode(e.target.value); setError(""); }}
+                  onKeyDown={(e) => e.key === "Enter" && handleVerify()}
+                  placeholder="Sign-in code"
+                  maxLength={12}
+                  autoFocus
+                  className="w-full rounded-lg border px-3 py-2.5 text-center text-lg tracking-[0.3em] outline-none bg-transparent text-white placeholder:text-slate-500 placeholder:tracking-normal placeholder:text-sm"
+                  style={{ borderColor: "hsl(228 25% 22%)", fontFamily: "system-ui, sans-serif" }}
+                />
+                {error && <p className="text-red-400 text-sm">{error}</p>}
+                <button
+                  onClick={handleVerify}
+                  disabled={verifying}
+                  className="w-full h-11 rounded-lg font-semibold text-sm transition-all disabled:opacity-50"
+                  style={{ background: "linear-gradient(135deg, hsl(38 88% 40%), hsl(38 88% 52%))", color: "#1a1530" }}>
+                  {verifying ? "Signing in…" : "Sign in"}
+                </button>
+              </div>
+              <div className="flex items-center justify-between gap-3 text-xs">
+                <button onClick={() => { setSent(false); setCode(""); setError(""); setResent(false); }}
+                  className="min-h-[44px] text-slate-500 underline hover:text-slate-300 transition-colors">
+                  Use a different email
+                </button>
+                <button onClick={handleSend} disabled={loading}
+                  className="min-h-[44px] text-slate-500 underline hover:text-slate-300 transition-colors disabled:opacity-50">
+                  {loading ? "Sending…" : resent ? "Sent again" : "Send a new email"}
+                </button>
+              </div>
             </div>
           )}
         </div>
@@ -2717,17 +2885,42 @@ function AuthScreen() {
   );
 }
 
+/** Full-screen message shown while starting up. */
+function StudySplash({ message, onSignOut }: { message: string; onSignOut?: () => void }) {
+  return (
+    <div style={{ background: "hsl(228 38% 7%)", minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: "0 24px", fontFamily: "Georgia, serif", color: "hsl(38 88% 58%)" }}>
+      <div style={{ textAlign: "center", maxWidth: 360 }}>
+        <div style={{ fontSize: "2rem", marginBottom: "0.5rem" }}>⚗</div>
+        <div role="status" style={{ fontSize: "0.85rem", color: "#94a3b8" }}>{message}</div>
+        {onSignOut && (
+          <button onClick={onSignOut} style={{ marginTop: 16, minHeight: 44, padding: "0 16px", background: "transparent", border: "1px solid hsl(228 25% 22%)", borderRadius: 8, color: "#94a3b8", fontSize: "0.8rem", cursor: "pointer" }}>
+            Sign out
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /** Small sync status pill shown in the sidebar. */
-function SyncIndicator({ syncing, user, onSignOut }: { syncing: boolean; user: SupabaseUser; onSignOut: () => void }) {
+function SyncIndicator({ status, user, onSignOut }: { status: SyncStatus; user: SupabaseUser; onSignOut: () => void }) {
   const [showMenu, setShowMenu] = useState(false);
+  const statusLabel =
+    status === "syncing" ? "Saving to your account…"
+    : status === "offline" ? "Offline — changes are kept on this device and sent when you reconnect"
+    : "Saved to your account";
   return (
     <div className="relative">
       <button
         onClick={() => setShowMenu((v) => !v)}
+        title={statusLabel}
+        aria-label={`${statusLabel}. Account menu for ${user?.email ?? "you"}`}
         className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs hover:bg-white/5 transition-colors"
-        style={{ color: syncing ? "#f59e0b" : "#34d399" }}>
-        {syncing
+        style={{ color: status === "syncing" ? "#f59e0b" : status === "offline" ? "#f87171" : "#34d399" }}>
+        {status === "syncing"
           ? <Loader className="w-3 h-3 animate-spin shrink-0" />
+          : status === "offline"
+          ? <WifiOff className="w-3 h-3 shrink-0" />
           : <Wifi className="w-3 h-3 shrink-0" />}
         <span className="flex-1 text-left truncate" style={{ color: "#94a3b8" }}>
           {user?.email}
@@ -2739,6 +2932,7 @@ function SyncIndicator({ syncing, user, onSignOut }: { syncing: boolean; user: S
           <div className="px-2.5 py-1.5 text-[11px] text-slate-500 border-b mb-1" style={{ borderColor: "hsl(228 25% 16%)" }}>
             Signed in as<br />
             <span className="text-slate-300 font-medium">{user?.email}</span>
+            <div className="mt-1">{statusLabel}</div>
           </div>
           <button
             onClick={() => { setShowMenu(false); onSignOut(); }}
@@ -2817,13 +3011,14 @@ export default function SanctumApp() {
     return () => subscription.unsubscribe();
   }, []);
 
+  // ── App state ────────────────────────────────────────────────────────────────
+  const [state, setState, syncStatus, ready, flushSync] = useSanctumStore(user);
+
   const handleSignOut = async () => {
+    await flushSync(); // don't leave the last change unsent
     await supabase.auth.signOut();
     setUser(null);
   };
-
-  // ── App state ────────────────────────────────────────────────────────────────
-  const [state, setState, syncing] = useSanctumStore(user);
   const [page, setPage] = useState("dashboard");
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [dragonBounce, setDragonBounce] = useState(false);
@@ -2874,17 +3069,18 @@ export default function SanctumApp() {
   // ── Auth gates ──────────────────────────────────────────────────────────────
   // IMPORTANT: these early returns must come AFTER every hook above, or React
   // throws error #310 (hook count mismatch between renders).
-  if (authLoading) {
-    return (
-      <div style={{ background: "hsl(228 38% 7%)", minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Georgia, serif", color: "hsl(38 88% 58%)" }}>
-        <div style={{ textAlign: "center" }}>
-          <div style={{ fontSize: "2rem", marginBottom: "0.5rem" }}>⚗</div>
-          <div style={{ fontSize: "0.75rem", color: "#64748b" }}>awakening the study…</div>
-        </div>
-      </div>
+  if (authLoading) return <StudySplash message="awakening the study…" />;
+  if (!user) return <AuthScreen />;
+  if (!ready) {
+    return syncStatus === "offline" ? (
+      <StudySplash
+        message="Can't reach your saved study yet. Check your internet connection — Sanctum keeps trying."
+        onSignOut={handleSignOut}
+      />
+    ) : (
+      <StudySplash message="opening your study…" />
     );
   }
-  if (!user) return <AuthScreen />;
 
   const hasActiveFast = state.fastSessions.some((f: FastSession) => f.status === "active");
 
@@ -3003,7 +3199,7 @@ export default function SanctumApp() {
           })}
         </nav>
         <div className="px-3 pb-3 space-y-2">
-          <SyncIndicator syncing={syncing} user={user} onSignOut={handleSignOut} />
+          <SyncIndicator status={syncStatus} user={user} onSignOut={handleSignOut} />
           <ThemeSwitcher activeTheme={state.theme} onSelect={(id) => setState((s: any) => ({ ...s, theme: id }))} />
         </div>
         <div className="p-4 border-t mt-auto" style={{ borderColor: `hsl(${theme.vars.border} / 0.4)` }}>
