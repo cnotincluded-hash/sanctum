@@ -31,6 +31,9 @@ Completing habits, finishing tasks, and logging focus minutes all earn XP and
 level you up — `(habit completions × 10) + (focus minutes × 0.5) + (tasks
 done × 20)`, leveling every 100 XP.
 
+Pick a theme at the bottom of the sidebar (Amethyst, Emerald Coven, Blood Moon,
+Frostbound or Solar Flare); every page takes on its colours.
+
 ## Desktop app
 
 ### Download
@@ -82,9 +85,10 @@ the file (for example, when upgrading from an earlier desktop build).
 
 Desktop changes stay on this computer; they are not uploaded to an account.
 The website version remains separate and continues to use Supabase for account
-sync. To configure website sync when building locally, copy `.env.example` to
-`.env` and fill in `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` from your
-Supabase project. Those settings are not needed for the desktop app.
+sync, with Sanctum's own Supabase project built in (`src/supabase.ts`). To point
+a build at a different project, copy `.env.example` to `.env` and fill in
+`VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`. The desktop app doesn't use
+these.
 
 ## Run and build it yourself
 
@@ -95,6 +99,10 @@ npm install
 npm run dev        # the website at http://localhost:5173/sanctum/
 npm run build      # the website's files in dist/ (deployed by deploy.yml)
 ```
+
+The website deploys itself whenever `main` changes. That needs **Settings →
+Pages → Build and deployment → Source** set to **GitHub Actions**; with
+"Deploy from a branch" GitHub serves the unbuilt source and the page is blank.
 
 For the desktop app you also need [Rust](https://rustup.rs) and the
 [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/) for your
@@ -109,7 +117,7 @@ npm run desktop:build  # make an installer in src-tauri/target/release/bundle
 
 The **Build desktop installers** workflow builds the Windows and Mac
 installers on GitHub and puts them in a draft release. The website keeps
-deploying on every push to `main` as before.
+deploying on every change to `main` as before.
 
 1. Raise the version in `package.json`, `src-tauri/tauri.conf.json` and
    `src-tauri/Cargo.toml`, for example to `1.1.0`.

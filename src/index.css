@@ -9,7 +9,8 @@
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  background: hsl(228 38% 7%);
+  /* the theme's background (set by the app; Amethyst until then) */
+  background: hsl(var(--bg, 228 38% 7%));
 }
 
 * { box-sizing: border-box; }
@@ -18,8 +19,8 @@ body { min-height: 100vh; overflow: hidden; }
 button, input, textarea, select { font: inherit; }
 button { cursor: pointer; }
 button:disabled { cursor: not-allowed; }
-::selection { background: hsl(270 60% 60% / 0.35); }
-* { scrollbar-width: thin; scrollbar-color: hsl(228 20% 26%) transparent; }
+::selection { background: hsl(var(--accent2, 270 60% 60%) / 0.35); }
+* { scrollbar-width: thin; scrollbar-color: hsl(var(--bg-h, 228) 20% 26%) transparent; }
 *::-webkit-scrollbar { width: 8px; height: 8px; }
-*::-webkit-scrollbar-thumb { background: hsl(228 20% 26%); border-radius: 999px; }
+*::-webkit-scrollbar-thumb { background: hsl(var(--bg-h, 228) 20% 26%); border-radius: 999px; }
 *::-webkit-scrollbar-track { background: transparent; }
