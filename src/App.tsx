@@ -2363,12 +2363,19 @@ const LOFI_STATIONS = [
   { id: "b4g8Uz7KP1A", label: "Lo-Fi Girl LIVE — cozy lofi hip hop 24/7", by: "Lo-Fi Girl LIVE" },
 ];
 
+/** The website's copy of public/player.html, used by the desktop app to play streams. */
+const PLAYER_RELAY = "https://cnotincluded-hash.github.io/sanctum/player.html";
+
 function LofiPlayer({ compact = false }: { compact?: boolean }) {
   const [stationIdx, setStationIdx] = useState(0);
   const [playing, setPlaying] = useState(false);
   const station = LOFI_STATIONS[stationIdx];
   // Browsers block sound on autoplay, so the stream starts muted; unmute with the player's own control.
-  const src = `https://www.youtube-nocookie.com/embed/${station.id}?autoplay=1&mute=1`;
+  // The desktop app plays through public/player.html on the website: YouTube needs to know which
+  // site an embed is on (else "Error 153"), and the app's own tauri:// pages can't tell it.
+  const src = IS_DESKTOP
+    ? `${PLAYER_RELAY}?v=${station.id}`
+    : `https://www.youtube-nocookie.com/embed/${station.id}?autoplay=1&mute=1`;
   const watchUrl = `https://www.youtube.com/watch?v=${station.id}`;
 
   const body = (
@@ -2384,7 +2391,8 @@ function LofiPlayer({ compact = false }: { compact?: boolean }) {
       </div>
       {playing && (
         <div className="overflow-hidden" style={{ aspectRatio: "16 / 9", borderRadius: 16, border: "1px solid var(--edge)" }}>
-          <iframe key={station.id} src={src} title={station.label} allow="autoplay; encrypted-media" allowFullScreen className="w-full h-full" style={{ border: 0 }} />
+          <iframe key={station.id} src={src} title={station.label} allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowFullScreen
+            referrerPolicy="strict-origin-when-cross-origin" className="w-full h-full" style={{ border: 0 }} />
         </div>
       )}
       <div className="flex flex-wrap gap-2" role="group" aria-label="Stations">

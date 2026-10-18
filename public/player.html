@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<meta name="robots" content="noindex">
+<title>Sanctum lofi player</title>
+<!--
+  The desktop app shows lofi streams through this page. YouTube refuses to play
+  an embed that doesn't say which website it's on (its "Error 153"), and the
+  app's own pages can't say that. Loaded from the Sanctum website, this page can,
+  so the stream plays. Only YouTube video IDs are accepted (?v=<11 characters>).
+-->
+<style>
+  html, body { margin: 0; height: 100%; background: #000; }
+  iframe { display: block; width: 100%; height: 100%; border: 0; }
+  p { margin: 0; padding: 16px; color: #a3a8c3; font: 14px system-ui, sans-serif; }
+</style>
+</head>
+<body>
+<script>
+  (function () {
+    var id = new URLSearchParams(location.search).get("v") || "";
+    if (!/^[A-Za-z0-9_-]{11}$/.test(id)) {
+      var p = document.createElement("p");
+      p.textContent = "No stream selected.";
+      document.body.appendChild(p);
+      return;
+    }
+    var frame = document.createElement("iframe");
+    // Starts muted because browsers block sound on autoplay; unmute in the player.
+    frame.src = "https://www.youtube-nocookie.com/embed/" + id + "?autoplay=1&mute=1";
+    frame.title = "Lofi stream";
+    frame.allow = "autoplay; encrypted-media; picture-in-picture; fullscreen";
+    frame.allowFullscreen = true;
+    frame.referrerPolicy = "strict-origin-when-cross-origin";
+    document.body.appendChild(frame);
+  })();
+</script>
+</body>
+</html>

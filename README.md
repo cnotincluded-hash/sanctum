@@ -143,6 +143,7 @@ deploying on every change to `main` as before.
 | `src/sanctum.css` | The look's styles: glass panels, type, buttons, fields, motion |
 | `src/sync.ts` | The rules for keeping devices and your account in step |
 | `src/desktop.ts` | The few differences in the desktop app (links open in your browser) |
+| `public/player.html` | The lofi player page on the website. The desktop app plays streams through it, because YouTube won't play an embed that doesn't come from a website (its "Error 153") |
 | `src/supabase.ts` | Website-only connection to your Supabase project |
 | `vite.config.ts` | Builds the website for `/sanctum/` and the desktop app for its own root |
 | `src-tauri/` | The desktop app shell: window, icons, installer settings (`tauri.conf.json`) |
