@@ -233,6 +233,89 @@ const THEMES: Record<ThemeId, ThemePalette> = {
   },
 };
 
+/*
+ * How the theme reaches every page. The pages were drawn in Amethyst's colours,
+ * so each colour is written relative to that theme:
+ *   hsl(var(--accent-h) var(--accent-s) 62%)   the accent's hue, a set lightness
+ *   hsl(var(--bg-h) calc(var(--bg-s) * 0.9) 10%) the background's hue, a bit less saturated
+ * and the Tailwind classes text-amber-*, bg-violet-* etc. read --th-amber-* and
+ * --th-violet-* (see tailwind.config.js). In Amethyst every value works out to
+ * exactly the original colour; other themes swap in their own hues.
+ */
+// Tailwind's amber and violet shades as [hue, saturation %, lightness %].
+const TW_AMBER: Record<number, [number, number, number]> = {
+  50: [48.0, 100.0, 96.08], 100: [48.0, 96.49, 88.82], 200: [48.0, 96.64, 76.67], 300: [45.94, 96.69, 64.51], 400: [43.26, 96.41, 56.27], 500: [37.69, 92.13, 50.2], 600: [32.13, 94.62, 43.73], 700: [25.96, 90.48, 37.06], 800: [22.73, 82.5, 31.37], 900: [21.71, 77.78, 26.47], 950: [20.91, 91.67, 14.12],
+};
+const TW_VIOLET: Record<number, [number, number, number]> = {
+  50: [250.0, 100.0, 97.65], 100: [251.43, 91.3, 95.49], 200: [250.5, 95.24, 91.76], 300: [252.5, 94.74, 85.1], 400: [255.14, 91.74, 76.27], 500: [258.31, 89.53, 66.27], 600: [262.12, 83.26, 57.84], 700: [263.39, 69.96, 50.39], 800: [263.36, 69.3, 42.16], 900: [263.5, 67.42, 34.9], 950: [261.18, 72.65, 22.94],
+};
+
+function hslParts(value: string): [number, number, number] {
+  const [h, s, l] = value.split(/\s+/).map((part) => parseFloat(part));
+  return [h, s, l];
+}
+
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
+/** A Tailwind palette moved to a theme's hue, with saturation scaled to match. */
+function shadeVars(name: string, palette: Record<number, [number, number, number]>, base: string, target: string) {
+  const [baseH, baseS] = hslParts(base);
+  const [h, s] = hslParts(target);
+  return Object.entries(palette).map(([shade, [th, ts, tl]]) => {
+    const hue = round2((((h + th - baseH) % 360) + 360) % 360);
+    const sat = round2(Math.min(100, (ts * s) / baseS));
+    return `--th-${name}-${shade}: ${hue} ${sat}% ${tl}%;`;
+  }).join("\n");
+}
+
+/** The CSS variables for a theme, ready to go inside a :root { } rule. */
+function themeCssVars(theme: ThemePalette): string {
+  const v = theme.vars;
+  const base = THEMES.amethyst.vars;
+  const [ah, as] = hslParts(v.accent);
+  const [a2h, a2s] = hslParts(v.accent2);
+  const [bh, bs] = hslParts(v.bg);
+  return [
+    `--accent: ${v.accent};`, `--accent-soft: ${v.accentSoft};`, `--accent-deep: ${v.accentDeep};`,
+    `--accent2: ${v.accent2};`, `--accent2-soft: ${v.accent2Soft};`,
+    `--bg: ${v.bg};`, `--bg-panel: ${v.bgPanel};`, `--bg-card: ${v.bgCard};`, `--border: ${v.border};`,
+    `--accent-h: ${ah}; --accent-s: ${as}%;`,
+    `--accent2-h: ${a2h}; --accent2-s: ${a2s}%;`,
+    `--bg-h: ${bh}; --bg-s: ${bs}%;`,
+    shadeVars("amber", TW_AMBER, base.accent, v.accent),
+    shadeVars("violet", TW_VIOLET, base.accent2, v.accent2),
+  ].join("\n");
+}
+
+/**
+ * Sets the theme before the app first draws, from the copy saved on this
+ * device, so the loading and sign-in screens already use it. Once the study
+ * is open, SanctumApp's own <style> takes over (it comes later in the page).
+ */
+export function applySavedTheme() {
+  let id: ThemeId = "amethyst";
+  try { id = (loadStateLocal()?.theme as ThemeId) ?? "amethyst"; } catch { /* keep Amethyst */ }
+  const theme = THEMES[id] ?? THEMES.amethyst;
+  let el = document.getElementById("sanctum-theme") as HTMLStyleElement | null;
+  if (!el) {
+    el = document.createElement("style");
+    el.id = "sanctum-theme";
+    document.head.appendChild(el);
+  }
+  el.textContent = `:root {\n${themeCssVars(theme)}\n}`;
+}
+
+/** Adds transparency to a colour given as #rrggbb or hsl(…). */
+function withAlpha(color: string, alpha: number): string {
+  if (color.startsWith("#") && color.length === 7) {
+    return color + Math.round(alpha * 255).toString(16).padStart(2, "0");
+  }
+  if (color.startsWith("hsl(") && color.endsWith(")") && !color.includes("/")) {
+    return `${color.slice(0, -1)} / ${alpha})`;
+  }
+  return color;
+}
+
 
 function defaultRpgState(): RpgState {
   return {
@@ -722,7 +805,7 @@ function Card({ children, className, style, onClick }: any) {
     <div
       onClick={onClick}
       className={cn("rounded-xl border", className)}
-      style={{ borderColor: "hsl(228 25% 16%)", ...style }}
+      style={{ borderColor: "hsl(var(--bg-h) calc(var(--bg-s) * 0.6579) 16%)", ...style }}
     >
       {children}
     </div>
@@ -760,7 +843,7 @@ function Input({ className, style, ...props }: any) {
         "w-full rounded-lg border bg-transparent px-3 py-2 text-sm outline-none transition-colors placeholder:text-slate-500",
         className
       )}
-      style={{ borderColor: "hsl(228 25% 20%)", color: "inherit", ...style }}
+      style={{ borderColor: "hsl(var(--bg-h) calc(var(--bg-s) * 0.6579) 20%)", color: "inherit", ...style }}
     />
   );
 }
@@ -768,7 +851,7 @@ function ArcaneDivider({ children, className }: any) {
   return (
     <div className={cn("flex items-center gap-2 uppercase tracking-[0.15em] text-[11px] font-semibold", className)}>
       {children}
-      <div className="flex-1 h-px" style={{ background: "linear-gradient(90deg, hsl(228 25% 20%), transparent)" }} />
+      <div className="flex-1 h-px" style={{ background: "linear-gradient(90deg, hsl(var(--bg-h) calc(var(--bg-s) * 0.6579) 20%), transparent)" }} />
     </div>
   );
 }
@@ -893,7 +976,7 @@ function DragonSprite({ pose, size = 56, bounce = false, color = "#a855f7", onPe
         )}
         {/* cheer / petted sparkle */}
         {(pose === "cheer" || pose === "petted") && (
-          <text x="68" y="22" fontSize="11" fill="hsl(38 88% 62%)" className="dragon-sparkle">{pose === "petted" ? "♥" : "✦"}</text>
+          <text x="68" y="22" fontSize="11" style={{ fill: "hsl(var(--accent-h) var(--accent-s) 62%)" }} className="dragon-sparkle">{pose === "petted" ? "♥" : "✦"}</text>
         )}
       </svg>
     </div>
@@ -907,13 +990,13 @@ function DragonCorner({ pose, bounce, familiar, onPet }: { pose: DragonPose; bou
     <div className="fixed bottom-4 right-4 z-30 flex items-end gap-2" aria-hidden="true">
       <div
         className="hidden sm:block rounded-lg px-2.5 py-1.5 text-[11px] italic text-slate-300 mb-1 pointer-events-none"
-        style={{ background: "hsl(228 36% 10% / 0.85)", border: "1px solid hsl(228 25% 20%)", backdropFilter: "blur(4px)" }}
+        style={{ background: "hsl(var(--bg-h) calc(var(--bg-s) * 0.9474) 10% / 0.85)", border: "1px solid hsl(var(--bg-h) calc(var(--bg-s) * 0.6579) 20%)", backdropFilter: "blur(4px)" }}
       >
         {familiar.name}: {line}
       </div>
       <div
         className="rounded-full p-1.5"
-        style={{ background: "hsl(228 36% 10% / 0.7)", border: "1px solid hsl(38 88% 52% / 0.2)", boxShadow: "0 0 20px rgba(0,0,0,0.4)" }}
+        style={{ background: "hsl(var(--bg-h) calc(var(--bg-s) * 0.9474) 10% / 0.7)", border: "1px solid hsl(var(--accent-h) var(--accent-s) 52% / 0.2)", boxShadow: "0 0 20px rgba(0,0,0,0.4)" }}
       >
         <DragonSprite pose={pose} size={48} bounce={bounce} color={familiar.color} onPet={onPet} />
       </div>
@@ -996,7 +1079,7 @@ function DashboardPage({ state, setState, dragonPose, dragonBounce, onPetFamilia
     <div className="space-y-8 animate-in">
       <header className="flex items-start justify-between gap-4 flex-wrap">
         <div className="space-y-1">
-          <h1 className="text-4xl font-serif font-bold" style={{ color: "hsl(38 88% 62%)", textShadow: "0 0 40px hsl(38 88% 52% / 0.25)" }}>
+          <h1 className="text-4xl font-serif font-bold" style={{ color: "hsl(var(--accent-h) var(--accent-s) 62%)", textShadow: "0 0 40px hsl(var(--accent-h) var(--accent-s) 52% / 0.25)" }}>
             {greeting}
           </h1>
           <p className="text-slate-400 italic">{greetingSub}</p>
@@ -1006,14 +1089,14 @@ function DashboardPage({ state, setState, dragonPose, dragonBounce, onPetFamilia
 
       <Card
         className="relative overflow-hidden border-amber-500/20"
-        style={{ background: "linear-gradient(135deg, hsl(228 38% 9%), hsl(270 30% 11%), hsl(228 38% 9%))" }}
+        style={{ background: "linear-gradient(135deg, hsl(var(--bg-h) var(--bg-s) 9%), hsl(var(--accent2-h) calc(var(--accent2-s) * 0.5) 11%), hsl(var(--bg-h) var(--bg-s) 9%))" }}
       >
         <div
           className="absolute top-0 left-0 right-0 h-px pointer-events-none"
-          style={{ background: "linear-gradient(90deg, transparent, hsl(38 88% 52% / 0.35), hsl(270 60% 60% / 0.2), transparent)" }}
+          style={{ background: "linear-gradient(90deg, transparent, hsl(var(--accent-h) var(--accent-s) 52% / 0.35), hsl(var(--accent2-h) var(--accent2-s) 60% / 0.2), transparent)" }}
         />
-        <div className="absolute inset-0 pointer-events-none" style={{ background: "radial-gradient(ellipse at 0% 0%, hsl(38 88% 52% / 0.10) 0%, transparent 55%)" }} />
-        <div className="absolute inset-0 pointer-events-none" style={{ background: "radial-gradient(ellipse at 100% 100%, hsl(270 60% 60% / 0.08) 0%, transparent 50%)" }} />
+        <div className="absolute inset-0 pointer-events-none" style={{ background: "radial-gradient(ellipse at 0% 0%, hsl(var(--accent-h) var(--accent-s) 52% / 0.10) 0%, transparent 55%)" }} />
+        <div className="absolute inset-0 pointer-events-none" style={{ background: "radial-gradient(ellipse at 100% 100%, hsl(var(--accent2-h) var(--accent2-s) 60% / 0.08) 0%, transparent 50%)" }} />
 
         <CardContent className="pt-6 pb-5 px-6 relative">
           <div className="flex items-center justify-between mb-5">
@@ -1021,13 +1104,13 @@ function DashboardPage({ state, setState, dragonPose, dragonBounce, onPetFamilia
               <div className="relative">
                 <div
                   className="w-14 h-14 rounded-full flex items-center justify-center border border-amber-500/30"
-                  style={{ background: "hsl(38 88% 52% / 0.12)", boxShadow: "0 0 24px hsl(38 88% 52% / 0.25)" }}
+                  style={{ background: "hsl(var(--accent-h) var(--accent-s) 52% / 0.12)", boxShadow: "0 0 24px hsl(var(--accent-h) var(--accent-s) 52% / 0.25)" }}
                 >
                   <Trophy className="w-7 h-7 text-amber-400" />
                 </div>
                 <div
                   className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-amber-400 text-slate-950 text-[10px] font-bold flex items-center justify-center"
-                  style={{ boxShadow: "0 0 10px hsl(38 88% 52% / 0.6)" }}
+                  style={{ boxShadow: "0 0 10px hsl(var(--accent-h) var(--accent-s) 52% / 0.6)" }}
                 >
                   {summary.level}
                 </div>
@@ -1037,7 +1120,7 @@ function DashboardPage({ state, setState, dragonPose, dragonBounce, onPetFamilia
                   <span className="text-amber-400/60 text-[10px]">✦</span>
                   Level {summary.level} Archmage
                 </div>
-                <div className="text-3xl font-serif font-bold text-amber-400" style={{ textShadow: "0 0 30px hsl(38 88% 52% / 0.35)" }}>
+                <div className="text-3xl font-serif font-bold text-amber-400" style={{ textShadow: "0 0 30px hsl(var(--accent-h) var(--accent-s) 52% / 0.35)" }}>
                   {summary.xp.toLocaleString()} <span className="text-xl text-amber-400/70">XP</span>
                 </div>
               </div>
@@ -1049,15 +1132,15 @@ function DashboardPage({ state, setState, dragonPose, dragonBounce, onPetFamilia
           <div className="relative h-1.5 rounded-full bg-amber-500/10 overflow-hidden">
             <div
               className="absolute top-0 left-0 h-full rounded-full"
-              style={{ width: `${xpIntoLevel}%`, background: "linear-gradient(90deg, hsl(270 60% 60%), hsl(38 88% 52%))" }}
+              style={{ width: `${xpIntoLevel}%`, background: "linear-gradient(90deg, hsl(var(--accent2-h) var(--accent2-s) 60%), hsl(var(--accent-h) var(--accent-s) 52%))" }}
             />
           </div>
         </CardContent>
       </Card>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <StatCard icon={<BookOpen className="w-4 h-4" />} label="Rituals" value={`${summary.habitsCompletedToday} / ${summary.totalHabits}`} sub="completed today" accentColor="hsl(38 88% 52%)" />
-        <StatCard icon={<CheckCircle className="w-4 h-4" />} label="Quests" value={String(summary.tasksCompletedToday)} sub={`done · ${summary.pendingTasks} pending`} accentColor="hsl(270 60% 66%)" />
+        <StatCard icon={<BookOpen className="w-4 h-4" />} label="Rituals" value={`${summary.habitsCompletedToday} / ${summary.totalHabits}`} sub="completed today" accentColor="hsl(var(--accent-h) var(--accent-s) 52%)" />
+        <StatCard icon={<CheckCircle className="w-4 h-4" />} label="Quests" value={String(summary.tasksCompletedToday)} sub={`done · ${summary.pendingTasks} pending`} accentColor="hsl(var(--accent2-h) var(--accent2-s) 66%)" />
         <StatCard icon={<Brain className="w-4 h-4" />} label="Focus" value={`${summary.totalFocusMinutesToday} min`} sub="channeled today" accentColor="hsl(210 80% 65%)" />
       </div>
 
@@ -1068,7 +1151,7 @@ function DashboardPage({ state, setState, dragonPose, dragonBounce, onPetFamilia
           </ArcaneDivider>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {summary.currentStreaks.map((s) => (
-              <Card key={s.habitId} className="border-white/5" style={{ background: "hsl(228 34% 10%)" }}>
+              <Card key={s.habitId} className="border-white/5" style={{ background: "hsl(var(--bg-h) calc(var(--bg-s) * 0.8947) 10%)" }}>
                 <CardContent className="p-4 flex items-center gap-3">
                   <div className="w-9 h-9 rounded-lg flex items-center justify-center text-lg shrink-0" style={{ background: `${s.color}15`, border: `1px solid ${s.color}25` }}>
                     🔥
@@ -1077,7 +1160,7 @@ function DashboardPage({ state, setState, dragonPose, dragonBounce, onPetFamilia
                     <div className="font-medium text-sm truncate">{s.habitName}</div>
                     <div className="text-xs text-slate-400">{s.streak} day streak</div>
                   </div>
-                  <div className="text-2xl font-serif font-bold text-amber-400 shrink-0" style={{ textShadow: "0 0 12px hsl(38 88% 52% / 0.4)" }}>
+                  <div className="text-2xl font-serif font-bold text-amber-400 shrink-0" style={{ textShadow: "0 0 12px hsl(var(--accent-h) var(--accent-s) 52% / 0.4)" }}>
                     {s.streak}
                   </div>
                 </CardContent>
@@ -1162,13 +1245,13 @@ function DashboardWidgetGrid({ state, setState }: { state: any; setState: any })
 
 function StatCard({ icon, label, value, sub, accentColor }: any) {
   return (
-    <Card className="relative overflow-hidden border-white/5" style={{ background: "hsl(228 34% 10%)" }}>
-      <div className="absolute top-0 left-0 right-0 h-px pointer-events-none" style={{ background: `linear-gradient(90deg, transparent, ${accentColor}30, transparent)` }} />
+    <Card className="relative overflow-hidden border-white/5" style={{ background: "hsl(var(--bg-h) calc(var(--bg-s) * 0.8947) 10%)" }}>
+      <div className="absolute top-0 left-0 right-0 h-px pointer-events-none" style={{ background: `linear-gradient(90deg, transparent, ${withAlpha(accentColor, 0.19)}, transparent)` }} />
       <CardContent className="p-5">
         <div className="flex items-center gap-2 text-sm font-medium mb-3" style={{ color: accentColor }}>
           {icon} {label}
         </div>
-        <div className="text-2xl font-serif font-bold" style={{ color: accentColor, textShadow: `0 0 20px ${accentColor}40` }}>
+        <div className="text-2xl font-serif font-bold" style={{ color: accentColor, textShadow: `0 0 20px ${withAlpha(accentColor, 0.25)}` }}>
           {value}
         </div>
         <p className="text-xs text-slate-400 mt-1">{sub}</p>
@@ -1180,13 +1263,13 @@ function StatCard({ icon, label, value, sub, accentColor }: any) {
 /* ============================== Dashboard Widgets ============================== */
 
 const WIDGET_REGISTRY: Record<WidgetId, { label: string; icon: any; color: string }> = {
-  habits: { label: "Grimoire", icon: Book, color: "hsl(38 88% 58%)" },
-  tasks: { label: "Quests", icon: CheckSquare, color: "hsl(270 60% 72%)" },
+  habits: { label: "Grimoire", icon: Book, color: "hsl(var(--accent-h) var(--accent-s) 58%)" },
+  tasks: { label: "Quests", icon: CheckSquare, color: "hsl(var(--accent2-h) var(--accent2-s) 72%)" },
   focus: { label: "Focus", icon: Timer, color: "hsl(210 80% 72%)" },
   vitality: { label: "Vitality", icon: Activity, color: "hsl(142 60% 60%)" },
-  fast: { label: "Fast", icon: Flame, color: "hsl(38 70% 60%)" },
-  journal: { label: "Journal", icon: NotebookPen, color: "hsl(38 70% 70%)" },
-  lofi: { label: "Lofi", icon: Music, color: "hsl(270 60% 72%)" },
+  fast: { label: "Fast", icon: Flame, color: "hsl(var(--accent-h) calc(var(--accent-s) * 0.7955) 60%)" },
+  journal: { label: "Journal", icon: NotebookPen, color: "hsl(var(--accent-h) calc(var(--accent-s) * 0.7955) 70%)" },
+  lofi: { label: "Lofi", icon: Music, color: "hsl(var(--accent2-h) var(--accent2-s) 72%)" },
 };
 
 /** Chrome wrapper: drag handle, label, remove button, drag/drop event plumbing. */
@@ -1244,7 +1327,7 @@ function AddWidgetMenu({ available, onAdd }: { available: WidgetId[]; onAdd: (id
         <Plus className="w-3.5 h-3.5 mr-1.5" /> Add Widget
       </Button>
       {open && (
-        <div className="absolute z-20 mt-1.5 w-full rounded-lg border p-1.5 grid gap-1" style={{ background: "hsl(228 36% 10%)", borderColor: "hsl(228 25% 18%)", boxShadow: "0 8px 24px rgba(0,0,0,0.4)" }}>
+        <div className="absolute z-20 mt-1.5 w-full rounded-lg border p-1.5 grid gap-1" style={{ background: "hsl(var(--bg-h) calc(var(--bg-s) * 0.9474) 10%)", borderColor: "hsl(var(--bg-h) calc(var(--bg-s) * 0.6579) 18%)", boxShadow: "0 8px 24px rgba(0,0,0,0.4)" }}>
           {available.map((id) => {
             const meta = WIDGET_REGISTRY[id];
             const Icon = meta.icon;
@@ -1276,7 +1359,7 @@ function HabitsWidget({ state, setState }: { state: any; setState: any }) {
   };
   if (state.habits.length === 0) return <EmptyWidgetNote text="No rituals yet — add some in the Grimoire." />;
   return (
-    <Card className="border-white/5 h-full" style={{ background: "hsl(228 34% 10%)" }}>
+    <Card className="border-white/5 h-full" style={{ background: "hsl(var(--bg-h) calc(var(--bg-s) * 0.8947) 10%)" }}>
       <CardContent className="p-3 space-y-1.5 overflow-y-auto h-full">
         {state.habits.slice(0, 8).map((h: Habit) => {
           const done = completedToday.has(h.id);
@@ -1302,7 +1385,7 @@ function TasksWidget({ state, setState }: { state: any; setState: any }) {
   };
   if (todo.length === 0) return <EmptyWidgetNote text="No active quests — the realm is at peace." />;
   return (
-    <Card className="border-white/5 h-full" style={{ background: "hsl(228 34% 10%)" }}>
+    <Card className="border-white/5 h-full" style={{ background: "hsl(var(--bg-h) calc(var(--bg-s) * 0.8947) 10%)" }}>
       <CardContent className="p-3 space-y-1.5 overflow-y-auto h-full">
         {todo.map((t: Task) => {
           const ps = priorityStyle[t.priority as Priority] ?? priorityStyle.medium;
@@ -1325,7 +1408,7 @@ function FocusWidget({ state }: { state: any }) {
     .reduce((sum: number, s: FocusSession) => sum + s.durationMinutes, 0);
   const recent = state.focusSessions.slice(0, 3);
   return (
-    <Card className="border-white/5 h-full" style={{ background: "hsl(228 34% 10%)" }}>
+    <Card className="border-white/5 h-full" style={{ background: "hsl(var(--bg-h) calc(var(--bg-s) * 0.8947) 10%)" }}>
       <CardContent className="p-4 space-y-3 h-full overflow-y-auto">
         <div className="flex items-center justify-between">
           <div>
@@ -1355,7 +1438,7 @@ function VitalityWidget({ state }: { state: any }) {
   const latestByType: Record<string, number> = {};
   for (const log of todayLogs) latestByType[log.type] = log.value;
   return (
-    <Card className="border-white/5 h-full" style={{ background: "hsl(228 34% 10%)" }}>
+    <Card className="border-white/5 h-full" style={{ background: "hsl(var(--bg-h) calc(var(--bg-s) * 0.8947) 10%)" }}>
       <CardContent className="p-3 h-full flex flex-col justify-center">
         <div className="grid grid-cols-5 gap-1.5">
         {METRICS.map((m) => {
@@ -1391,9 +1474,9 @@ function FastWidget({ state }: { state: any }) {
   const targetMs = current.targetHours * 3_600_000;
   const pct = Math.min(1, elapsed / targetMs);
   return (
-    <Card className="border-white/5 h-full" style={{ background: "hsl(228 34% 10%)" }}>
+    <Card className="border-white/5 h-full" style={{ background: "hsl(var(--bg-h) calc(var(--bg-s) * 0.8947) 10%)" }}>
       <CardContent className="p-4 h-full flex items-center gap-4">
-        <CircleProgress pct={pct} size={56} strokeWidth={6} color="hsl(38 88% 50%)" />
+        <CircleProgress pct={pct} size={56} strokeWidth={6} color="hsl(var(--accent-h) var(--accent-s) 50%)" />
         <div>
           <div className="text-sm font-semibold">{current.protocol} fast</div>
           <div className="text-xs text-slate-400">{formatHours(elapsed)}h of {current.targetHours}h</div>
@@ -1424,14 +1507,14 @@ function JournalWidget({ state, setState }: { state: any; setState: any }) {
   };
 
   return (
-    <Card className="border-white/5 h-full" style={{ background: "hsl(228 34% 10%)" }}>
+    <Card className="border-white/5 h-full" style={{ background: "hsl(var(--bg-h) calc(var(--bg-s) * 0.8947) 10%)" }}>
       <CardContent className="p-3 h-full flex flex-col">
         <textarea
           value={text}
           onChange={(e) => handleChange(e.target.value)}
           placeholder="Quick thought for today..."
           className="flex-1 w-full rounded-md border bg-transparent px-2.5 py-2 text-sm outline-none resize-none placeholder:text-slate-500"
-          style={{ borderColor: "hsl(228 25% 18%)", color: "inherit" }}
+          style={{ borderColor: "hsl(var(--bg-h) calc(var(--bg-s) * 0.6579) 18%)", color: "inherit" }}
         />
       </CardContent>
     </Card>
@@ -1517,7 +1600,7 @@ function HabitsPage({ state, setState }: { state: any; setState: any }) {
     <div className="space-y-6 animate-in">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-4xl font-serif font-bold" style={{ color: "hsl(38 88% 62%)", textShadow: "0 0 40px hsl(38 88% 52% / 0.2)" }}>Grimoire</h1>
+          <h1 className="text-4xl font-serif font-bold" style={{ color: "hsl(var(--accent-h) var(--accent-s) 62%)", textShadow: "0 0 40px hsl(var(--accent-h) var(--accent-s) 52% / 0.2)" }}>Grimoire</h1>
           <p className="text-slate-400 italic mt-1">Your daily rituals and sacred spells.</p>
         </div>
         <Button variant="outline" className="border-amber-500/30 text-amber-400 hover:bg-amber-500/10" onClick={() => setShowForm((v: boolean) => !v)}>
@@ -1527,8 +1610,8 @@ function HabitsPage({ state, setState }: { state: any; setState: any }) {
       </div>
 
       {showForm && (
-        <Card className="border-amber-500/25 relative overflow-hidden" style={{ background: "linear-gradient(135deg, hsl(228 38% 9%), hsl(270 30% 10%))" }}>
-          <div className="absolute top-0 left-0 right-0 h-px" style={{ background: "linear-gradient(90deg, transparent, hsl(38 88% 52% / 0.4), transparent)" }} />
+        <Card className="border-amber-500/25 relative overflow-hidden" style={{ background: "linear-gradient(135deg, hsl(var(--bg-h) var(--bg-s) 9%), hsl(var(--accent2-h) calc(var(--accent2-s) * 0.5) 10%))" }}>
+          <div className="absolute top-0 left-0 right-0 h-px" style={{ background: "linear-gradient(90deg, transparent, hsl(var(--accent-h) var(--accent-s) 52% / 0.4), transparent)" }} />
           <CardContent className="p-5 space-y-4">
             <h2 className="font-serif text-lg font-semibold flex items-center gap-2">
               <span className="text-amber-400/60 text-sm">✦</span> Scribe a new ritual
@@ -1580,7 +1663,7 @@ function HabitsPage({ state, setState }: { state: any; setState: any }) {
               const accentColor = habit.color || "#f59e0b";
               return (
                 <Card key={habit.id} className={cn("overflow-hidden border-l-4 transition-all duration-300", done && "opacity-65")}
-                  style={{ borderLeftColor: accentColor, borderRightColor: "hsl(228 25% 16%)", borderTopColor: "hsl(228 25% 16%)", borderBottomColor: "hsl(228 25% 16%)", background: done ? "hsl(228 34% 9%)" : "linear-gradient(135deg, hsl(228 34% 10%), hsl(228 30% 11%))" }}>
+                  style={{ borderLeftColor: accentColor, borderRightColor: "hsl(var(--bg-h) calc(var(--bg-s) * 0.6579) 16%)", borderTopColor: "hsl(var(--bg-h) calc(var(--bg-s) * 0.6579) 16%)", borderBottomColor: "hsl(var(--bg-h) calc(var(--bg-s) * 0.6579) 16%)", background: done ? "hsl(var(--bg-h) calc(var(--bg-s) * 0.8947) 9%)" : "linear-gradient(135deg, hsl(var(--bg-h) calc(var(--bg-s) * 0.8947) 10%), hsl(var(--bg-h) calc(var(--bg-s) * 0.7895) 11%))" }}>
                   <CardContent className="p-4 flex items-center gap-4">
                     <HabitIcon icon={habit.icon} color={habit.color} />
                     <div className="flex-1 min-w-0">
@@ -1660,7 +1743,7 @@ function TasksPage({ state, setState }: { state: any; setState: any }) {
     <div className="space-y-6 animate-in">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-4xl font-serif font-bold" style={{ color: "hsl(270 60% 72%)", textShadow: "0 0 40px hsl(270 60% 60% / 0.25)" }}>Quests</h1>
+          <h1 className="text-4xl font-serif font-bold" style={{ color: "hsl(var(--accent2-h) var(--accent2-s) 72%)", textShadow: "0 0 40px hsl(var(--accent2-h) var(--accent2-s) 60% / 0.25)" }}>Quests</h1>
           <p className="text-slate-400 italic mt-1">Active endeavors and bounties.</p>
         </div>
         <Button variant="outline" className="border-violet-400/30 text-violet-300 hover:bg-violet-500/10" onClick={() => setShowForm((v: boolean) => !v)}>
@@ -1670,8 +1753,8 @@ function TasksPage({ state, setState }: { state: any; setState: any }) {
       </div>
 
       {showForm && (
-        <Card className="border-violet-400/25 relative overflow-hidden" style={{ background: "linear-gradient(135deg, hsl(228 38% 9%), hsl(270 30% 10%))" }}>
-          <div className="absolute top-0 left-0 right-0 h-px" style={{ background: "linear-gradient(90deg, transparent, hsl(270 60% 60% / 0.4), transparent)" }} />
+        <Card className="border-violet-400/25 relative overflow-hidden" style={{ background: "linear-gradient(135deg, hsl(var(--bg-h) var(--bg-s) 9%), hsl(var(--accent2-h) calc(var(--accent2-s) * 0.5) 10%))" }}>
+          <div className="absolute top-0 left-0 right-0 h-px" style={{ background: "linear-gradient(90deg, transparent, hsl(var(--accent2-h) var(--accent2-s) 60% / 0.4), transparent)" }} />
           <CardContent className="p-5 space-y-4">
             <h2 className="font-serif text-lg font-semibold flex items-center gap-2">
               <span className="text-violet-300/60 text-sm">⚔</span> Embark on a new quest
@@ -1686,14 +1769,14 @@ function TasksPage({ state, setState }: { state: any; setState: any }) {
                   return (
                     <button key={p} onClick={() => setForm((f: any) => ({ ...f, priority: p }))}
                       className="px-3 py-1.5 rounded-lg border text-sm capitalize transition-all"
-                      style={form.priority === p ? { borderColor: s.border, background: s.bg, color: s.color, fontWeight: 600 } : { borderColor: "hsl(228 25% 20%)", color: "#94a3b8" }}>
+                      style={form.priority === p ? { borderColor: s.border, background: s.bg, color: s.color, fontWeight: 600 } : { borderColor: "hsl(var(--bg-h) calc(var(--bg-s) * 0.6579) 20%)", color: "#94a3b8" }}>
                       {p}
                     </button>
                   );
                 })}
               </div>
               {formError && <p className="text-red-400 text-sm">{formError}</p>}
-              <Button onClick={handleCreate} className="w-full" style={{ background: "hsl(270 60% 55%)", color: "white" }}>⚔ Add Quest</Button>
+              <Button onClick={handleCreate} className="w-full" style={{ background: "hsl(var(--accent2-h) var(--accent2-s) 55%)", color: "white" }}>⚔ Add Quest</Button>
             </div>
           </CardContent>
         </Card>
@@ -1740,7 +1823,7 @@ function TaskRow({ task, onToggle, onDelete, confirmDelete, setConfirmDelete }: 
   const askingDelete = confirmDelete === task.id;
   const ps = priorityStyle[task.priority as Priority] ?? priorityStyle.medium;
   return (
-    <Card className={cn("transition-all duration-200 border-white/5", done && "opacity-55")} style={{ background: "hsl(228 34% 10%)" }}>
+    <Card className={cn("transition-all duration-200 border-white/5", done && "opacity-55")} style={{ background: "hsl(var(--bg-h) calc(var(--bg-s) * 0.8947) 10%)" }}>
       <CardContent className="p-4 flex items-start gap-4">
         <button onClick={() => onToggle(task.id, task.status)}
           className={cn("mt-0.5 w-5 h-5 rounded border-2 flex items-center justify-center shrink-0 transition-all duration-200",
@@ -1876,14 +1959,14 @@ function FocusPage({ state, setState }: { state: any; setState: any }) {
       )}
 
       <Card className={cn("overflow-hidden relative transition-all duration-500", isFinished ? "border-green-500/30" : "border-amber-500/15")}
-        style={{ background: "linear-gradient(135deg, hsl(228 38% 9%), hsl(270 30% 10%), hsl(228 38% 9%))" }}>
-        <div className="absolute top-0 left-0 right-0 h-px" style={{ background: isFinished ? "linear-gradient(90deg, transparent, rgba(52,211,153,0.5), transparent)" : "linear-gradient(90deg, transparent, hsl(38 88% 52% / 0.35), hsl(270 60% 60% / 0.2), transparent)" }} />
+        style={{ background: "linear-gradient(135deg, hsl(var(--bg-h) var(--bg-s) 9%), hsl(var(--accent2-h) calc(var(--accent2-s) * 0.5) 10%), hsl(var(--bg-h) var(--bg-s) 9%))" }}>
+        <div className="absolute top-0 left-0 right-0 h-px" style={{ background: isFinished ? "linear-gradient(90deg, transparent, rgba(52,211,153,0.5), transparent)" : "linear-gradient(90deg, transparent, hsl(var(--accent-h) var(--accent-s) 52% / 0.35), hsl(var(--accent2-h) var(--accent2-s) 60% / 0.2), transparent)" }} />
         <div className="absolute top-0 left-0 w-full h-0.5 bg-white/5">
-          <div className="h-full transition-all duration-1000 ease-linear" style={{ width: `${progress}%`, background: isFinished ? "#22c55e" : "linear-gradient(90deg, hsl(270 60% 60%), hsl(38 88% 52%))" }} />
+          <div className="h-full transition-all duration-1000 ease-linear" style={{ width: `${progress}%`, background: isFinished ? "#22c55e" : "linear-gradient(90deg, hsl(var(--accent2-h) var(--accent2-s) 60%), hsl(var(--accent-h) var(--accent-s) 52%))" }} />
         </div>
         <CardContent className="p-10 flex flex-col items-center gap-7 relative">
           <div className={cn("text-7xl sm:text-8xl font-serif font-light tracking-tight tabular-nums transition-colors duration-500", isPaused && "opacity-50")}
-            style={{ color: isFinished ? "hsl(142 70% 65%)" : "hsl(38 88% 62%)", textShadow: isFinished ? "0 0 40px rgba(52,211,153,0.35)" : "0 0 40px hsl(38 88% 52% / 0.3)" }}>
+            style={{ color: isFinished ? "hsl(142 70% 65%)" : "hsl(var(--accent-h) var(--accent-s) 62%)", textShadow: isFinished ? "0 0 40px rgba(52,211,153,0.35)" : "0 0 40px hsl(var(--accent-h) var(--accent-s) 52% / 0.3)" }}>
             {String(minutes).padStart(2, "0")}:{String(seconds).padStart(2, "0")}
           </div>
           {isFinished && <div className="text-green-400 font-semibold text-sm flex items-center gap-1.5"><span>✦</span> Session complete! Well channeled.</div>}
@@ -1892,15 +1975,15 @@ function FocusPage({ state, setState }: { state: any; setState: any }) {
             placeholder="What are you focusing on?" disabled={isActive} />
           <div className="flex items-center gap-3">
             {isFinished ? (
-              <Button size="lg" className="rounded-full px-8" onClick={handleReset} style={{ background: "hsl(38 88% 45%)" }}><RotateCcw className="w-4 h-4 mr-2" /> New Session</Button>
+              <Button size="lg" className="rounded-full px-8" onClick={handleReset} style={{ background: "hsl(var(--accent-h) var(--accent-s) 45%)" }}><RotateCcw className="w-4 h-4 mr-2" /> New Session</Button>
             ) : !isActive && !isPaused ? (
-              <Button size="lg" className="rounded-full px-12" onClick={handleStart} style={{ background: "linear-gradient(135deg, hsl(38 88% 45%), hsl(38 82% 52%))" }}><Play className="w-4 h-4 mr-2" /> Begin</Button>
+              <Button size="lg" className="rounded-full px-12" onClick={handleStart} style={{ background: "linear-gradient(135deg, hsl(var(--accent-h) var(--accent-s) 45%), hsl(var(--accent-h) calc(var(--accent-s) * 0.9318) 52%))" }}><Play className="w-4 h-4 mr-2" /> Begin</Button>
             ) : (
               <>
                 {isActive ? (
                   <Button size="lg" variant="outline" className="rounded-full border-amber-500/30 text-amber-400 hover:bg-amber-500/10" onClick={handlePause}><Pause className="w-4 h-4 mr-2" /> Pause</Button>
                 ) : (
-                  <Button size="lg" className="rounded-full px-8" onClick={handleStart} style={{ background: "linear-gradient(135deg, hsl(38 88% 45%), hsl(38 82% 52%))" }}><Play className="w-4 h-4 mr-2" /> Resume</Button>
+                  <Button size="lg" className="rounded-full px-8" onClick={handleStart} style={{ background: "linear-gradient(135deg, hsl(var(--accent-h) var(--accent-s) 45%), hsl(var(--accent-h) calc(var(--accent-s) * 0.9318) 52%))" }}><Play className="w-4 h-4 mr-2" /> Resume</Button>
                 )}
                 <Button size="lg" variant="secondary" className="rounded-full" onClick={handleStop}><Square className="w-4 h-4 mr-2" /> Stop</Button>
               </>
@@ -1915,7 +1998,7 @@ function FocusPage({ state, setState }: { state: any; setState: any }) {
           <ArcaneDivider className="mb-3 text-slate-500 text-[10px]"><span className="text-amber-400/50 text-[8px]">✦</span> Recent Sessions</ArcaneDivider>
           <div className="space-y-2">
             {state.focusSessions.slice(0, 6).map((session: FocusSession) => (
-              <Card key={session.id} className="border-white/5" style={{ background: "hsl(228 34% 10%)" }}>
+              <Card key={session.id} className="border-white/5" style={{ background: "hsl(var(--bg-h) calc(var(--bg-s) * 0.8947) 10%)" }}>
                 <CardContent className="p-3.5 flex items-center justify-between gap-3">
                   <div className="flex-1 min-w-0">
                     <div className="font-medium text-sm truncate italic">{session.label}</div>
@@ -1988,7 +2071,7 @@ function HealthPage({ state, setState }: { state: any; setState: any }) {
           return (
             <div key={m.key} className="space-y-2">
               <Card onClick={() => !isActive && openLog(m.key)} className="cursor-pointer transition-all duration-200 border-white/5"
-                style={{ background: "hsl(228 34% 10%)", ...(isActive ? { borderColor: m.color + "50" } : {}), ...(justSaved ? { borderColor: "rgba(52,211,153,0.4)" } : {}) }}>
+                style={{ background: "hsl(var(--bg-h) calc(var(--bg-s) * 0.8947) 10%)", ...(isActive ? { borderColor: m.color + "50" } : {}), ...(justSaved ? { borderColor: "rgba(52,211,153,0.4)" } : {}) }}>
                 <CardContent className="p-5 flex flex-col items-center text-center">
                   <div className="w-10 h-10 rounded-full flex items-center justify-center mb-3" style={{ background: m.color + "18", border: `1px solid ${m.color}28` }}>
                     <Icon className="w-5 h-5" style={{ color: m.color }} />
@@ -2001,7 +2084,7 @@ function HealthPage({ state, setState }: { state: any; setState: any }) {
                 </CardContent>
               </Card>
               {isActive && (
-                <Card className="relative overflow-hidden" style={{ background: "linear-gradient(135deg, hsl(228 38% 9%), hsl(270 30% 10%))", borderColor: m.color + "35" }}>
+                <Card className="relative overflow-hidden" style={{ background: "linear-gradient(135deg, hsl(var(--bg-h) var(--bg-s) 9%), hsl(var(--accent2-h) calc(var(--accent2-s) * 0.5) 10%))", borderColor: m.color + "35" }}>
                   <CardContent className="p-4 space-y-3">
                     <p className="text-sm font-medium text-center" style={{ color: m.color }}>Log {m.label}</p>
                     <div className="flex items-center gap-2 justify-center">
@@ -2030,7 +2113,7 @@ function HealthPage({ state, setState }: { state: any; setState: any }) {
         })}
       </div>
 
-      <Card className="border-white/5" style={{ background: "hsl(228 34% 9%)" }}>
+      <Card className="border-white/5" style={{ background: "hsl(var(--bg-h) calc(var(--bg-s) * 0.8947) 9%)" }}>
         <CardContent className="p-5">
           <p className="text-sm text-slate-400 text-center italic">✦ Tap any vessel above to log your daily measures. Values accumulate throughout the day.</p>
         </CardContent>
@@ -2060,15 +2143,15 @@ function formatDuration(ms: number) {
 function formatHours(ms: number) {
   return (ms / 3_600_000).toFixed(1);
 }
-function CircleProgress({ pct, size = 220, strokeWidth = 12, color = "hsl(38 88% 42%)" }: any) {
+function CircleProgress({ pct, size = 220, strokeWidth = 12, color = "hsl(var(--accent-h) var(--accent-s) 42%)" }: any) {
   const r = (size - strokeWidth) / 2;
   const circ = 2 * Math.PI * r;
   const offset = circ * (1 - Math.min(pct, 1));
   const cx = size / 2;
   return (
     <svg width={size} height={size} className="-rotate-90">
-      <circle cx={cx} cy={cx} r={r} fill="none" stroke="rgba(245,158,11,0.1)" strokeWidth={strokeWidth} />
-      <circle cx={cx} cy={cx} r={r} fill="none" stroke={color} strokeWidth={strokeWidth} strokeDasharray={circ} strokeDashoffset={offset} strokeLinecap="round" className="transition-all duration-1000 ease-linear" />
+      <circle cx={cx} cy={cx} r={r} fill="none" style={{ stroke: "hsl(var(--th-amber-500) / 0.1)" }} strokeWidth={strokeWidth} />
+      <circle cx={cx} cy={cx} r={r} fill="none" style={{ stroke: color }} strokeWidth={strokeWidth} strokeDasharray={circ} strokeDashoffset={offset} strokeLinecap="round" className="transition-all duration-1000 ease-linear" />
     </svg>
   );
 }
@@ -2104,7 +2187,7 @@ function FastingPage({ state, setState }: { state: any; setState: any }) {
   const pct = targetMs > 0 ? elapsed / targetMs : 0;
   const isComplete = pct >= 1;
   const remainingMs = Math.max(0, targetMs - elapsed);
-  const ringColor = isComplete ? "hsl(142 60% 45%)" : pct > 0.75 ? "hsl(38 88% 42%)" : "hsl(38 88% 52%)";
+  const ringColor = isComplete ? "hsl(142 60% 45%)" : pct > 0.75 ? "hsl(var(--accent-h) var(--accent-s) 42%)" : "hsl(var(--accent-h) var(--accent-s) 52%)";
 
   return (
     <div className="space-y-8 animate-in">
@@ -2117,8 +2200,8 @@ function FastingPage({ state, setState }: { state: any; setState: any }) {
 
       {currentFast ? (
         <div className="space-y-6">
-          <Card className="relative overflow-hidden border-amber-500/20" style={{ background: "linear-gradient(135deg, hsl(228 36% 10%), hsl(228 30% 9%), hsl(270 25% 10%))" }}>
-            <div className="absolute inset-0 pointer-events-none" style={{ background: "radial-gradient(ellipse at 50% 0%, hsl(38 88% 52% / 0.08) 0%, transparent 65%)" }} />
+          <Card className="relative overflow-hidden border-amber-500/20" style={{ background: "linear-gradient(135deg, hsl(var(--bg-h) calc(var(--bg-s) * 0.9474) 10%), hsl(var(--bg-h) calc(var(--bg-s) * 0.7895) 9%), hsl(var(--accent2-h) calc(var(--accent2-s) * 0.4167) 10%))" }}>
+            <div className="absolute inset-0 pointer-events-none" style={{ background: "radial-gradient(ellipse at 50% 0%, hsl(var(--accent-h) var(--accent-s) 52% / 0.08) 0%, transparent 65%)" }} />
             <CardContent className="p-8 flex flex-col items-center text-center relative">
               <div className="relative mb-4">
                 <CircleProgress pct={pct} color={ringColor} />
@@ -2140,13 +2223,13 @@ function FastingPage({ state, setState }: { state: any; setState: any }) {
             </CardContent>
           </Card>
           <div className="grid grid-cols-3 gap-3">
-            <Card className="border-white/5" style={{ background: "hsl(228 34% 10%)" }}><CardContent className="p-4 text-center"><div className="text-2xl font-serif font-bold">{formatHours(elapsed)}h</div><div className="text-xs text-slate-400 mt-1">Elapsed</div></CardContent></Card>
-            <Card className="border-white/5" style={{ background: "hsl(228 34% 10%)" }}><CardContent className="p-4 text-center"><div className="text-2xl font-serif font-bold">{Math.round(pct * 100)}%</div><div className="text-xs text-slate-400 mt-1">Complete</div></CardContent></Card>
-            <Card className="border-white/5" style={{ background: "hsl(228 34% 10%)" }}><CardContent className="p-4 text-center"><div className="text-2xl font-serif font-bold">{formatHours(remainingMs)}h</div><div className="text-xs text-slate-400 mt-1">Remaining</div></CardContent></Card>
+            <Card className="border-white/5" style={{ background: "hsl(var(--bg-h) calc(var(--bg-s) * 0.8947) 10%)" }}><CardContent className="p-4 text-center"><div className="text-2xl font-serif font-bold">{formatHours(elapsed)}h</div><div className="text-xs text-slate-400 mt-1">Elapsed</div></CardContent></Card>
+            <Card className="border-white/5" style={{ background: "hsl(var(--bg-h) calc(var(--bg-s) * 0.8947) 10%)" }}><CardContent className="p-4 text-center"><div className="text-2xl font-serif font-bold">{Math.round(pct * 100)}%</div><div className="text-xs text-slate-400 mt-1">Complete</div></CardContent></Card>
+            <Card className="border-white/5" style={{ background: "hsl(var(--bg-h) calc(var(--bg-s) * 0.8947) 10%)" }}><CardContent className="p-4 text-center"><div className="text-2xl font-serif font-bold">{formatHours(remainingMs)}h</div><div className="text-xs text-slate-400 mt-1">Remaining</div></CardContent></Card>
           </div>
         </div>
       ) : (
-        <Card className="border-amber-500/15" style={{ background: "hsl(228 34% 10%)" }}>
+        <Card className="border-amber-500/15" style={{ background: "hsl(var(--bg-h) calc(var(--bg-s) * 0.8947) 10%)" }}>
           <CardContent className="p-7 space-y-6">
             <div>
               <h2 className="font-serif text-xl font-semibold mb-1">Begin a fast</h2>
@@ -2183,7 +2266,7 @@ function FastingPage({ state, setState }: { state: any; setState: any }) {
               const achieved = dur / 3_600_000;
               const successPct = Math.round((achieved / f.targetHours) * 100);
               return (
-                <Card key={f.id} className="border-white/5" style={{ background: "hsl(228 34% 9%)" }}>
+                <Card key={f.id} className="border-white/5" style={{ background: "hsl(var(--bg-h) calc(var(--bg-s) * 0.8947) 9%)" }}>
                   <CardContent className="p-4 flex items-center gap-4">
                     <div className={cn("w-8 h-8 rounded-full flex items-center justify-center shrink-0", f.status === "completed" ? "bg-green-500/15 text-green-500" : "bg-red-500/15 text-red-400")}>
                       {f.status === "completed" ? <CheckCircle className="w-4 h-4" /> : <XCircle className="w-4 h-4" />}
@@ -2267,14 +2350,14 @@ function JournalPage({ state, setState }: { state: any; setState: any }) {
   return (
     <div className="space-y-8 animate-in">
       <div>
-        <h1 className="text-4xl font-serif font-bold flex items-center gap-2" style={{ color: "hsl(38 70% 70%)", textShadow: "0 0 40px hsl(38 70% 60% / 0.2)" }}>
+        <h1 className="text-4xl font-serif font-bold flex items-center gap-2" style={{ color: "hsl(var(--accent-h) calc(var(--accent-s) * 0.7955) 70%)", textShadow: "0 0 40px hsl(var(--accent-h) calc(var(--accent-s) * 0.7955) 60% / 0.2)" }}>
           <Pencil className="w-7 h-7" /> Journal
         </h1>
         <p className="text-slate-400 italic mt-1">A page for today's thoughts.</p>
       </div>
 
-      <Card className="border-amber-500/15 relative overflow-hidden" style={{ background: "linear-gradient(135deg, hsl(228 38% 9%), hsl(270 30% 10%))" }}>
-        <div className="absolute top-0 left-0 right-0 h-px" style={{ background: "linear-gradient(90deg, transparent, hsl(38 88% 52% / 0.35), transparent)" }} />
+      <Card className="border-amber-500/15 relative overflow-hidden" style={{ background: "linear-gradient(135deg, hsl(var(--bg-h) var(--bg-s) 9%), hsl(var(--accent2-h) calc(var(--accent2-s) * 0.5) 10%))" }}>
+        <div className="absolute top-0 left-0 right-0 h-px" style={{ background: "linear-gradient(90deg, transparent, hsl(var(--accent-h) var(--accent-s) 52% / 0.35), transparent)" }} />
         <CardContent className="p-6 space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="font-serif text-lg font-semibold">
@@ -2305,7 +2388,7 @@ function JournalPage({ state, setState }: { state: any; setState: any }) {
             placeholder="What happened today? What's on your mind?"
             rows={8}
             className="w-full rounded-lg border bg-transparent px-3 py-2.5 text-sm outline-none resize-none placeholder:text-slate-500"
-            style={{ borderColor: "hsl(228 25% 20%)", color: "inherit", fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" }}
+            style={{ borderColor: "hsl(var(--bg-h) calc(var(--bg-s) * 0.6579) 20%)", color: "inherit", fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" }}
           />
           <p className="text-xs text-slate-500 italic">Saves automatically as you write.</p>
         </CardContent>
@@ -2316,7 +2399,7 @@ function JournalPage({ state, setState }: { state: any; setState: any }) {
           <ArcaneDivider className="mb-3 text-slate-500 text-[10px]"><span className="text-amber-400/50 text-[8px]">✦</span> Past Entries</ArcaneDivider>
           <div className="space-y-2">
             {pastEntries.slice(0, 14).map((entry: JournalEntry) => (
-              <Card key={entry.id} className="border-white/5" style={{ background: "hsl(228 34% 10%)" }}>
+              <Card key={entry.id} className="border-white/5" style={{ background: "hsl(var(--bg-h) calc(var(--bg-s) * 0.8947) 10%)" }}>
                 <CardContent className="p-4">
                   <div className="flex items-center justify-between mb-1.5">
                     <span className="text-sm font-medium">
@@ -2354,15 +2437,15 @@ function LofiPlayer({ compact = false }: { compact?: boolean }) {
   const watchUrl = `https://www.youtube.com/watch?v=${station.id}`;
 
   return (
-    <Card className={cn("border-violet-400/15 relative overflow-hidden", compact && "h-full")} style={{ background: "linear-gradient(135deg, hsl(228 38% 9%), hsl(270 30% 10%))" }}>
-      <div className="absolute top-0 left-0 right-0 h-px" style={{ background: "linear-gradient(90deg, transparent, hsl(270 60% 60% / 0.35), transparent)" }} />
+    <Card className={cn("border-violet-400/15 relative overflow-hidden", compact && "h-full")} style={{ background: "linear-gradient(135deg, hsl(var(--bg-h) var(--bg-s) 9%), hsl(var(--accent2-h) calc(var(--accent2-s) * 0.5) 10%))" }}>
+      <div className="absolute top-0 left-0 right-0 h-px" style={{ background: "linear-gradient(90deg, transparent, hsl(var(--accent2-h) var(--accent2-s) 60% / 0.35), transparent)" }} />
       <CardContent className={cn("space-y-3 overflow-y-auto", compact ? "p-3 h-full" : "p-5")}>
         <div className="flex items-center justify-between gap-2">
           <h3 className={cn("font-serif font-semibold flex items-center gap-2", compact ? "text-sm" : "text-lg")}>
             <Music className="w-4 h-4 text-violet-300" /> Lofi Study Stream
           </h3>
           {!playing ? (
-            <Button size="sm" onClick={() => setPlaying(true)} style={{ background: "hsl(270 55% 50%)", color: "white" }}>
+            <Button size="sm" onClick={() => setPlaying(true)} style={{ background: "hsl(var(--accent2-h) calc(var(--accent2-s) * 0.9167) 50%)", color: "white" }}>
               <Play className="w-3.5 h-3.5 mr-1.5" /> Play
             </Button>
           ) : (
@@ -2512,7 +2595,7 @@ const GEAR_TIER_COLOR: Record<GearTier, string> = { common: "#94a3b8", rare: "#6
 function GearSlotCard({ slot, gear, onUnequip }: { slot: GearSlot; gear: Gear | null; onUnequip?: () => void }) {
   const slotLabel = slot === "weapon" ? "Weapon" : slot === "armor" ? "Armor" : "Trinket";
   return (
-    <div className="rounded-lg border p-2.5" style={{ borderColor: gear ? `${GEAR_TIER_COLOR[gear.tier]}40` : "hsl(228 25% 18%)", background: "hsl(228 34% 9%)" }}>
+    <div className="rounded-lg border p-2.5" style={{ borderColor: gear ? `${GEAR_TIER_COLOR[gear.tier]}40` : "hsl(var(--bg-h) calc(var(--bg-s) * 0.6579) 18%)", background: "hsl(var(--bg-h) calc(var(--bg-s) * 0.8947) 9%)" }}>
       <div className="text-[10px] uppercase tracking-wide text-slate-500 mb-1">{slotLabel}</div>
       {gear ? (
         <div className="flex items-center justify-between gap-2">
@@ -2618,19 +2701,19 @@ function AscentPage({ state, setState }: { state: any; setState: any }) {
   return (
     <div className="space-y-8 animate-in">
       <div>
-        <h1 className="text-4xl font-serif font-bold flex items-center gap-2" style={{ color: "hsl(270 60% 72%)", textShadow: "0 0 40px hsl(270 60% 60% / 0.25)" }}>
+        <h1 className="text-4xl font-serif font-bold flex items-center gap-2" style={{ color: "hsl(var(--accent2-h) var(--accent2-s) 72%)", textShadow: "0 0 40px hsl(var(--accent2-h) var(--accent2-s) 60% / 0.25)" }}>
           <Zap className="w-7 h-7" /> The Ascent
         </h1>
         <p className="text-slate-400 italic mt-1">Your deeds in the waking world echo here.</p>
       </div>
 
       {/* Character + Essence panel */}
-      <Card className="relative overflow-hidden border-violet-400/20" style={{ background: "linear-gradient(135deg, hsl(228 38% 9%), hsl(270 30% 11%), hsl(228 38% 9%))" }}>
-        <div className="absolute top-0 left-0 right-0 h-px pointer-events-none" style={{ background: "linear-gradient(90deg, transparent, hsl(270 60% 60% / 0.4), transparent)" }} />
+      <Card className="relative overflow-hidden border-violet-400/20" style={{ background: "linear-gradient(135deg, hsl(var(--bg-h) var(--bg-s) 9%), hsl(var(--accent2-h) calc(var(--accent2-s) * 0.5) 11%), hsl(var(--bg-h) var(--bg-s) 9%))" }}>
+        <div className="absolute top-0 left-0 right-0 h-px pointer-events-none" style={{ background: "linear-gradient(90deg, transparent, hsl(var(--accent2-h) var(--accent2-s) 60% / 0.4), transparent)" }} />
         <CardContent className="p-6 relative">
           <div className="flex flex-wrap items-start gap-6">
             <div className="flex items-center gap-4">
-              <div className="w-20 h-20 rounded-xl flex items-center justify-center shrink-0" style={{ background: "hsl(270 50% 16%)", border: "1px solid hsl(270 60% 50% / 0.3)" }}>
+              <div className="w-20 h-20 rounded-xl flex items-center justify-center shrink-0" style={{ background: "hsl(var(--accent2-h) calc(var(--accent2-s) * 0.8333) 16%)", border: "1px solid hsl(var(--accent2-h) var(--accent2-s) 50% / 0.3)" }}>
                 <PixelSprite grid={PLAYER_SPRITE} palette={PLAYER_PALETTE} pixelSize={8} />
               </div>
               <div>
@@ -2645,7 +2728,7 @@ function AscentPage({ state, setState }: { state: any; setState: any }) {
                 <span>Level progress</span><span>{essenceIntoLevel} / {ESSENCE_PER_LEVEL}</span>
               </div>
               <div className="relative h-1.5 rounded-full bg-violet-500/10 overflow-hidden">
-                <div className="absolute top-0 left-0 h-full rounded-full" style={{ width: `${essenceIntoLevel}%`, background: "linear-gradient(90deg, hsl(270 60% 55%), hsl(38 88% 52%))" }} />
+                <div className="absolute top-0 left-0 h-full rounded-full" style={{ width: `${essenceIntoLevel}%`, background: "linear-gradient(90deg, hsl(var(--accent2-h) var(--accent2-s) 55%), hsl(var(--accent-h) var(--accent-s) 52%))" }} />
               </div>
               <div className="grid grid-cols-4 gap-2 mt-4">
                 <StatPip label="HP" value={stats.hp} color="#34d399" />
@@ -2675,7 +2758,7 @@ function AscentPage({ state, setState }: { state: any; setState: any }) {
           <ArcaneDivider className="mb-3 text-slate-500 text-[10px]"><span className="text-violet-300/50 text-[8px]">⚔</span> Inventory</ArcaneDivider>
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2.5">
             {rpg.inventory.map((g) => (
-              <button key={g.id} onClick={() => handleEquip(g)} className="rounded-lg border p-2.5 text-left hover:bg-white/5 transition-colors" style={{ borderColor: `${GEAR_TIER_COLOR[g.tier]}30`, background: "hsl(228 34% 10%)" }}>
+              <button key={g.id} onClick={() => handleEquip(g)} className="rounded-lg border p-2.5 text-left hover:bg-white/5 transition-colors" style={{ borderColor: `${GEAR_TIER_COLOR[g.tier]}30`, background: "hsl(var(--bg-h) calc(var(--bg-s) * 0.8947) 10%)" }}>
                 <div className="text-xs font-semibold truncate" style={{ color: GEAR_TIER_COLOR[g.tier] }}>{g.name}</div>
                 <div className="text-[10px] text-slate-500 capitalize">{g.slot} · {g.tier}</div>
                 <div className="text-[10px] text-slate-500 mt-1">+{g.atk} ATK · +{g.def} DEF · +{g.hp} HP</div>
@@ -2688,7 +2771,7 @@ function AscentPage({ state, setState }: { state: any; setState: any }) {
       {/* Battle arena */}
       <div>
         <ArcaneDivider className="mb-3 text-slate-500 text-[10px]"><Flame className="w-3 h-3 text-amber-400" /> Battle Arena</ArcaneDivider>
-        <Card className="border-white/5 overflow-hidden" style={{ background: "hsl(228 34% 9%)" }}>
+        <Card className="border-white/5 overflow-hidden" style={{ background: "hsl(var(--bg-h) calc(var(--bg-s) * 0.8947) 9%)" }}>
           <CardContent className="p-5 space-y-4">
             <div className="flex flex-wrap gap-2">
               {availableEnemies.map((e, i) => (
@@ -2705,7 +2788,7 @@ function AscentPage({ state, setState }: { state: any; setState: any }) {
 
             <div className="flex items-center justify-center gap-10 py-4">
               <div className="flex flex-col items-center gap-2">
-                <div className="w-16 h-16 rounded-lg flex items-center justify-center" style={{ background: "hsl(270 50% 14%)", border: "1px solid hsl(270 60% 50% / 0.25)" }}>
+                <div className="w-16 h-16 rounded-lg flex items-center justify-center" style={{ background: "hsl(var(--accent2-h) calc(var(--accent2-s) * 0.8333) 14%)", border: "1px solid hsl(var(--accent2-h) var(--accent2-s) 50% / 0.25)" }}>
                   <PixelSprite grid={PLAYER_SPRITE} palette={PLAYER_PALETTE} pixelSize={6} />
                 </div>
                 <span className="text-[10px] text-slate-400">You + {state.familiar.name}</span>
@@ -2727,7 +2810,7 @@ function AscentPage({ state, setState }: { state: any; setState: any }) {
             )}
 
             {(battleLog.length > 0) && (
-              <div className="rounded-lg border border-white/10 p-3 max-h-40 overflow-y-auto space-y-1 text-xs" style={{ background: "hsl(228 38% 7%)" }}>
+              <div className="rounded-lg border border-white/10 p-3 max-h-40 overflow-y-auto space-y-1 text-xs" style={{ background: "hsl(var(--bg-h) var(--bg-s) 7%)" }}>
                 {battleLog.filter(Boolean).map((line, i) => (
                   <div key={i} className={cn(line.side === "player" ? "text-sky-300" : line.side === "enemy" ? "text-red-300" : "text-amber-300 font-semibold")}>
                     {line.text}
@@ -2759,7 +2842,7 @@ function AscentPage({ state, setState }: { state: any; setState: any }) {
           <ArcaneDivider className="mb-3 text-slate-500 text-[10px]"><History className="w-3 h-3" /> Battle History</ArcaneDivider>
           <div className="space-y-1.5">
             {rpg.battleHistory.slice(0, 8).map((b: BattleRecord) => (
-              <Card key={b.id} className="border-white/5" style={{ background: "hsl(228 34% 10%)" }}>
+              <Card key={b.id} className="border-white/5" style={{ background: "hsl(var(--bg-h) calc(var(--bg-s) * 0.8947) 10%)" }}>
                 <CardContent className="p-3 flex items-center justify-between gap-3 text-xs">
                   <span className={cn("font-medium", b.won ? "text-green-400" : "text-red-400")}>{b.won ? "Won" : "Lost"} vs {b.enemyName}</span>
                   <span className="text-slate-500">{new Date(b.at).toLocaleDateString([], { month: "short", day: "numeric" })}</span>
@@ -2776,7 +2859,7 @@ function AscentPage({ state, setState }: { state: any; setState: any }) {
 
 function StatPip({ label, value, color }: { label: string; value: number; color: string }) {
   return (
-    <div className="text-center rounded-lg border border-white/5 py-1.5" style={{ background: "hsl(228 34% 9%)" }}>
+    <div className="text-center rounded-lg border border-white/5 py-1.5" style={{ background: "hsl(var(--bg-h) calc(var(--bg-s) * 0.8947) 9%)" }}>
       <div className="text-base font-serif font-bold" style={{ color }}>{value}</div>
       <div className="text-[9px] text-slate-500 uppercase tracking-wide">{label}</div>
     </div>
@@ -2850,15 +2933,15 @@ function AuthScreen() {
 
   return (
     <div className="min-h-screen flex items-center justify-center px-4"
-      style={{ background: "hsl(228 38% 7%)", fontFamily: "Georgia, 'Times New Roman', serif" }}>
+      style={{ background: "hsl(var(--bg-h) var(--bg-s) 7%)", fontFamily: "Georgia, 'Times New Roman', serif" }}>
       <div className="w-full max-w-sm space-y-8">
         {/* Logo */}
         <div className="text-center">
           <div className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4"
-            style={{ background: "linear-gradient(135deg, hsl(38 88% 30%), hsl(38 88% 52%))", boxShadow: "0 0 32px hsl(38 88% 52% / 0.4)" }}>
+            style={{ background: "linear-gradient(135deg, hsl(var(--accent-h) var(--accent-s) 30%), hsl(var(--accent-h) var(--accent-s) 52%))", boxShadow: "0 0 32px hsl(var(--accent-h) var(--accent-s) 52% / 0.4)" }}>
             <span className="text-3xl">⚗</span>
           </div>
-          <h1 className="text-4xl font-bold" style={{ color: "hsl(38 88% 60%)", textShadow: "0 0 40px hsl(38 88% 52% / 0.3)" }}>
+          <h1 className="text-4xl font-bold" style={{ color: "hsl(var(--accent-h) var(--accent-s) 60%)", textShadow: "0 0 40px hsl(var(--accent-h) var(--accent-s) 52% / 0.3)" }}>
             Sanctum
           </h1>
           <p className="text-slate-400 italic mt-2 text-sm">Your arcane study awaits.</p>
@@ -2866,7 +2949,7 @@ function AuthScreen() {
 
         {/* Card */}
         <div className="rounded-2xl border p-7 space-y-5"
-          style={{ background: "hsl(228 36% 10%)", borderColor: "hsl(228 25% 18%)" }}>
+          style={{ background: "hsl(var(--bg-h) calc(var(--bg-s) * 0.9474) 10%)", borderColor: "hsl(var(--bg-h) calc(var(--bg-s) * 0.6579) 18%)" }}>
           {!sent ? (
             <>
               <div>
@@ -2888,14 +2971,14 @@ function AuthScreen() {
                   placeholder="your@email.com"
                   autoFocus
                   className="w-full rounded-lg border px-3 py-2.5 text-sm outline-none bg-transparent text-white placeholder:text-slate-500"
-                  style={{ borderColor: "hsl(228 25% 22%)", fontFamily: "system-ui, sans-serif" }}
+                  style={{ borderColor: "hsl(var(--bg-h) calc(var(--bg-s) * 0.6579) 22%)", fontFamily: "system-ui, sans-serif" }}
                 />
                 {error && <p className="text-red-400 text-sm">{error}</p>}
                 <button
                   onClick={handleSend}
                   disabled={loading}
                   className="w-full h-11 rounded-lg font-semibold text-sm transition-all disabled:opacity-50"
-                  style={{ background: "linear-gradient(135deg, hsl(38 88% 40%), hsl(38 88% 52%))", color: "#1a1530" }}>
+                  style={{ background: "linear-gradient(135deg, hsl(var(--accent-h) var(--accent-s) 40%), hsl(var(--accent-h) var(--accent-s) 52%))", color: "#1a1530" }}>
                   {loading ? "Sending…" : "Send sign-in email ✦"}
                 </button>
               </div>
@@ -2927,14 +3010,14 @@ function AuthScreen() {
                   maxLength={12}
                   autoFocus
                   className="w-full rounded-lg border px-3 py-2.5 text-center text-lg tracking-[0.3em] outline-none bg-transparent text-white placeholder:text-slate-500 placeholder:tracking-normal placeholder:text-sm"
-                  style={{ borderColor: "hsl(228 25% 22%)", fontFamily: "system-ui, sans-serif" }}
+                  style={{ borderColor: "hsl(var(--bg-h) calc(var(--bg-s) * 0.6579) 22%)", fontFamily: "system-ui, sans-serif" }}
                 />
                 {error && <p className="text-red-400 text-sm">{error}</p>}
                 <button
                   onClick={handleVerify}
                   disabled={verifying}
                   className="w-full h-11 rounded-lg font-semibold text-sm transition-all disabled:opacity-50"
-                  style={{ background: "linear-gradient(135deg, hsl(38 88% 40%), hsl(38 88% 52%))", color: "#1a1530" }}>
+                  style={{ background: "linear-gradient(135deg, hsl(var(--accent-h) var(--accent-s) 40%), hsl(var(--accent-h) var(--accent-s) 52%))", color: "#1a1530" }}>
                   {verifying ? "Signing in…" : "Sign in"}
                 </button>
               </div>
@@ -2961,12 +3044,12 @@ function AuthScreen() {
 /** Full-screen message shown while starting up. */
 function StudySplash({ message, onSignOut }: { message: string; onSignOut?: () => void }) {
   return (
-    <div style={{ background: "hsl(228 38% 7%)", minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: "0 24px", fontFamily: "Georgia, serif", color: "hsl(38 88% 58%)" }}>
+    <div style={{ background: "hsl(var(--bg-h) var(--bg-s) 7%)", minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: "0 24px", fontFamily: "Georgia, serif", color: "hsl(var(--accent-h) var(--accent-s) 58%)" }}>
       <div style={{ textAlign: "center", maxWidth: 360 }}>
         <div style={{ fontSize: "2rem", marginBottom: "0.5rem" }}>⚗</div>
         <div role="status" style={{ fontSize: "0.85rem", color: "#94a3b8" }}>{message}</div>
         {onSignOut && (
-          <button onClick={onSignOut} style={{ marginTop: 16, minHeight: 44, padding: "0 16px", background: "transparent", border: "1px solid hsl(228 25% 22%)", borderRadius: 8, color: "#94a3b8", fontSize: "0.8rem", cursor: "pointer" }}>
+          <button onClick={onSignOut} style={{ marginTop: 16, minHeight: 44, padding: "0 16px", background: "transparent", border: "1px solid hsl(var(--bg-h) calc(var(--bg-s) * 0.6579) 22%)", borderRadius: 8, color: "#94a3b8", fontSize: "0.8rem", cursor: "pointer" }}>
             Sign out
           </button>
         )}
@@ -3023,8 +3106,8 @@ function SyncIndicator({ status, user, onSignOut }: { status: SyncStatus; user: 
       </button>
       {showMenu && (
         <div className="absolute bottom-full mb-1 left-0 right-0 rounded-lg border p-1"
-          style={{ background: "hsl(228 36% 11%)", borderColor: "hsl(228 25% 18%)", boxShadow: "0 8px 24px rgba(0,0,0,0.5)" }}>
-          <div className="px-2.5 py-1.5 text-[11px] text-slate-500 border-b mb-1" style={{ borderColor: "hsl(228 25% 16%)" }}>
+          style={{ background: "hsl(var(--bg-h) calc(var(--bg-s) * 0.9474) 11%)", borderColor: "hsl(var(--bg-h) calc(var(--bg-s) * 0.6579) 18%)", boxShadow: "0 8px 24px rgba(0,0,0,0.5)" }}>
+          <div className="px-2.5 py-1.5 text-[11px] text-slate-500 border-b mb-1" style={{ borderColor: "hsl(var(--bg-h) calc(var(--bg-s) * 0.6579) 16%)" }}>
             Signed in as<br />
             <span className="text-slate-300 font-medium">{user?.email}</span>
             <div className="mt-1">{statusLabel}</div>
@@ -3225,15 +3308,7 @@ export default function SanctumApp() {
     <div className="min-h-screen flex" style={{ background: `hsl(${theme.vars.bg})`, color: "#e2e8f0", fontFamily: "Georgia, 'Times New Roman', serif" }}>
       <style>{`
         :root {
-          --accent: ${theme.vars.accent};
-          --accent-soft: ${theme.vars.accentSoft};
-          --accent-deep: ${theme.vars.accentDeep};
-          --accent2: ${theme.vars.accent2};
-          --accent2-soft: ${theme.vars.accent2Soft};
-          --bg: ${theme.vars.bg};
-          --bg-panel: ${theme.vars.bgPanel};
-          --bg-card: ${theme.vars.bgCard};
-          --border: ${theme.vars.border};
+          ${themeCssVars(theme)}
         }
         .font-serif { font-family: Georgia, 'Times New Roman', serif; }
         @keyframes fade-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
