@@ -34,6 +34,14 @@ done × 20)`, leveling every 100 XP.
 Pick a theme at the bottom of the sidebar (Amethyst, Emerald Coven, Blood Moon,
 Frostbound or Solar Flare); every page takes on its colours.
 
+### The look
+
+Sanctum's design is "sleek arcane": frosted-glass panels over a dark ground lit
+by two soft glows, Instrument Serif for headings and numbers, Manrope for
+everything else. Each theme sets three colours for it (an accent, a second
+accent and the ground) in `THEMES` in `src/App.tsx`; the shared pieces
+(buttons, panels, rings, mood faces) live in `src/ui.tsx` and `src/sanctum.css`.
+
 ## Desktop app
 
 ### Download
@@ -130,7 +138,9 @@ deploying on every change to `main` as before.
 
 | Path | What it is |
 | --- | --- |
-| `src/App.tsx` | The whole app: pages, components, state and styling |
+| `src/App.tsx` | The app: pages, state, themes and sync |
+| `src/ui.tsx` | Shared building blocks for the look: buttons, panels, rings, mood faces, menus |
+| `src/sanctum.css` | The look's styles: glass panels, type, buttons, fields, motion |
 | `src/sync.ts` | The rules for keeping devices and your account in step |
 | `src/desktop.ts` | The few differences in the desktop app (links open in your browser) |
 | `src/supabase.ts` | Website-only connection to your Supabase project |
@@ -143,7 +153,8 @@ deploying on every change to `main` as before.
 ## Tech stack
 
 React 18, TypeScript, Vite, Tailwind CSS and [lucide-react](https://lucide.dev/)
-icons; [Supabase](https://supabase.com) for sign-in and sync; [Tauri](https://tauri.app)
+icons; Instrument Serif and Manrope fonts, bundled with the app through
+[Fontsource](https://fontsource.org) so they work offline; [Supabase](https://supabase.com) for sign-in and sync; [Tauri](https://tauri.app)
 for the desktop app.
 
 ## License
