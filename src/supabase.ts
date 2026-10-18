@@ -1,17 +1,9 @@
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type User } from "@supabase/supabase-js";
 
-const SUPABASE_URL = "https://wupqndwpxyepihnsypxg.supabase.co";
-const SUPABASE_ANON_KEY =
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Ind1cHFuZHdweHllcGlobnN5cHhnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ3MjMzNDQsImV4cCI6MjEwMDI5OTM0NH0.o0oz-B7xkqZU1HxbqFYB9yZBz4aXyoAwxCEYDf8EecQ";
+// The desktop build never calls Supabase: its data stays in Documents/Sanctum.
+// The website version uses these public Vite environment variables for account sync.
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || "https://placeholder.supabase.co";
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || "placeholder-anon-key";
 
-export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-  auth: {
-    persistSession: true,
-    autoRefreshToken: true,
-    detectSessionInUrl: true, // picks up magic link tokens from the URL
-  },
-});
-
-export type SupabaseUser = Awaited<
-  ReturnType<typeof supabase.auth.getUser>
->["data"]["user"];
+export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+export type SupabaseUser = User;

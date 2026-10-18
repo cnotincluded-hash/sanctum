@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef, useCallback, type ReactNode } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import {
   Trophy, CheckCircle, Brain, BookOpen, Flame, Plus, Book, Check, X, Trash2, Undo2,
   Droplets, Dumbbell, Pencil, Star, Heart, Zap, Sun, Moon, Coffee, Music, Leaf,
   CheckSquare, Play, Square, Pause, RotateCcw, Droplet, Footprints, Smile, Minus,
   LayoutDashboard, Timer, Activity, XCircle, History, Menu, NotebookPen, LogOut,
-  Wifi, WifiOff, Loader,
+  Wifi, WifiOff, Loader, HardDrive,
 } from "lucide-react";
 import { supabase } from "./supabase";
 import type { SupabaseUser } from "./supabase";
@@ -274,20 +275,21 @@ function seedState() {
 type SyncStatus = "syncing" | "synced" | "offline";
 
 /**
- * App state, kept on this device and in the signed-in account.
- * - Every change is saved on this device at once and to the account 1.5s later.
- * - Nothing is sent to the account until this device has read the account's copy,
- *   so a new install or an offline start can never overwrite real data.
- * - Changes made offline are uploaded once the account can be reached again.
- * - Switching back to the window picks up changes made on another device.
- * `ready` stays false until the account's copy has loaded; offline, a device that
- * already holds this account's data opens with it instead of waiting.
+ * Desktop mode is local-only and stores state in Documents/Sanctum/sanctum-data.json.
+ * Website mode stores a local recovery copy and syncs to the signed-in account.
+ * For website sync, this device reads the account's copy before uploading changes,
+ * so a blank/new device cannot overwrite existing data. Offline changes are queued
+ * until the account can be reached again.
  */
 function useSanctumStore(user: SupabaseUser | null) {
   const [state, setState] = useState<any>(() => loadStateLocal() ?? seedState());
   const [status, setStatus] = useState<SyncStatus>("syncing");
   const [ready, setReady] = useState(false);
 
+  // The desktop app writes a readable JSON file in Documents/Sanctum. The browser
+  // storage copy is retained as a recovery/migration backup, but isn't the primary store.
+  const desktopLoaded = useRef(false);
+  const localSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const userId = user?.id ?? null;
   const userIdRef = useRef<string | null>(userId);
   userIdRef.current = userId;
@@ -319,13 +321,83 @@ function useSanctumStore(user: SupabaseUser | null) {
     setState((prev: any) => {
       const next = typeof updater === "function" ? updater(prev) : updater;
       if (next === prev) return prev;
+      if (IS_DESKTOP) {
+        const { _owner: _discardedOwner, ...localOnly } = next;
+        return { ...localOnly, _changedAt: Date.now() };
+      }
       return { ...next, _changedAt: Date.now(), _owner: userIdRef.current ?? next._owner };
     });
   }, []);
 
-  // Save every change on this device, and queue it for the account.
+  // Desktop-only startup. Load the JSON file first, recover from the browser copy
+  // if it is newer, then make sure a usable file exists before showing the app.
+  useEffect(() => {
+    if (!IS_DESKTOP) return;
+    let cancelled = false;
+
+    const loadDesktopState = async () => {
+      let fileState: any = null;
+      try {
+        const contents = await invoke<string | null>("load_local_state");
+        if (contents) {
+          try { fileState = migrateState(JSON.parse(contents)); }
+          catch (error) { console.error("Sanctum data file could not be parsed; trying the local recovery copy.", error); }
+        }
+      } catch (error) {
+        console.error("Sanctum could not read its local data file; trying the local recovery copy.", error);
+      }
+      if (cancelled) return;
+
+      const browserState = loadStateLocal();
+      let loaded = fileState;
+      if (browserState && (!loaded || (browserState._changedAt ?? 0) > (loaded._changedAt ?? 0))) {
+        loaded = browserState;
+      }
+      if (!loaded) loaded = latest.current ?? seedState();
+
+      // Account ownership is not relevant in local-only desktop mode.
+      const { _owner: _discardedOwner, ...localOnly } = loaded;
+      loaded = { ...localOnly, _changedAt: loaded._changedAt ?? Date.now() };
+      desktopLoaded.current = true;
+      latest.current = loaded;
+      saveStateLocal(loaded);
+      setState(loaded);
+
+      try {
+        await invoke("save_local_state", { contents: JSON.stringify(loaded, null, 2) });
+        if (!cancelled) setStatus("synced");
+      } catch (error) {
+        console.error("Sanctum could not write its local data file.", error);
+        if (!cancelled) setStatus("offline");
+      }
+      if (!cancelled) setReady(true);
+    };
+
+    void loadDesktopState();
+    return () => { cancelled = true; };
+  }, []);
+
+  // Save every change immediately to browser recovery storage. For desktop, also
+  // queue a file write; for the website, queue the existing account sync instead.
   useEffect(() => {
     latest.current = state;
+    if (IS_DESKTOP) {
+      if (!desktopLoaded.current) return;
+      saveStateLocal(state);
+      if (localSaveTimer.current) clearTimeout(localSaveTimer.current);
+      setStatus("syncing");
+      const snapshot = state;
+      localSaveTimer.current = setTimeout(() => {
+        invoke("save_local_state", { contents: JSON.stringify(snapshot, null, 2) })
+          .then(() => setStatus("synced"))
+          .catch((error) => {
+            console.error("Sanctum could not save its local data file.", error);
+            setStatus("offline");
+          });
+      }, 200);
+      return;
+    }
+
     saveStateLocal(state);
     if (remoteReady.current && userIdRef.current && (state._changedAt ?? 0) > pushedAt.current) {
       if (saveTimer.current) clearTimeout(saveTimer.current);
@@ -342,6 +414,7 @@ function useSanctumStore(user: SupabaseUser | null) {
 
   // After sign-in: read the account's copy (retrying while offline), then decide what to keep.
   useEffect(() => {
+    if (IS_DESKTOP) return;
     remoteReady.current = false;
     pushedAt.current = 0;
     if (saveTimer.current) { clearTimeout(saveTimer.current); saveTimer.current = null; }
@@ -380,7 +453,7 @@ function useSanctumStore(user: SupabaseUser | null) {
 
   // Coming back to the window: pick up anything saved from another device meanwhile.
   useEffect(() => {
-    if (!userId) return;
+    if (IS_DESKTOP || !userId) return;
     let lastCheck = 0;
     const check = async () => {
       if (document.visibilityState !== "visible") return;
@@ -2902,6 +2975,28 @@ function StudySplash({ message, onSignOut }: { message: string; onSignOut?: () =
   );
 }
 
+/** Desktop-only indicator: the installed app has no account or cloud dependency. */
+function LocalSaveIndicator({ status }: { status: SyncStatus }) {
+  const label = status === "syncing"
+    ? "Saving to this PC…"
+    : status === "offline"
+    ? "Couldn't save the data file — check folder permissions"
+    : "Saved on this PC";
+  const Icon = status === "syncing" ? Loader : status === "offline" ? WifiOff : HardDrive;
+  return (
+    <div
+      title={`${label}. Data file: Documents/Sanctum/sanctum-data.json`}
+      className="flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs"
+      style={{ color: status === "syncing" ? "#f59e0b" : status === "offline" ? "#f87171" : "#34d399" }}
+      role="status"
+      aria-live="polite"
+    >
+      <Icon className={`w-3 h-3 shrink-0 ${status === "syncing" ? "animate-spin" : ""}`} />
+      <span className="truncate" style={{ color: "#94a3b8" }}>{label}</span>
+    </div>
+  );
+}
+
 /** Small sync status pill shown in the sidebar. */
 function SyncIndicator({ status, user, onSignOut }: { status: SyncStatus; user: SupabaseUser; onSignOut: () => void }) {
   const [showMenu, setShowMenu] = useState(false);
@@ -2996,19 +3091,27 @@ function ThemeSwitcher({ activeTheme, onSelect, compact = false }: { activeTheme
 export default function SanctumApp() {
   // ── Auth state ──────────────────────────────────────────────────────────────
   const [user, setUser] = useState<SupabaseUser | null>(null);
-  const [authLoading, setAuthLoading] = useState(true);
+  const [authLoading, setAuthLoading] = useState(!IS_DESKTOP);
 
   useEffect(() => {
-    // Get initial session
+    if (IS_DESKTOP) {
+      setUser(null);
+      setAuthLoading(false);
+      return;
+    }
+    let mounted = true;
+    // Browser version retains account sign-in and cross-device sync.
     supabase.auth.getSession().then(({ data }) => {
+      if (!mounted) return;
       setUser(data.session?.user ?? null);
       setAuthLoading(false);
+    }).catch(() => {
+      if (mounted) setAuthLoading(false);
     });
-    // Listen for login/logout/magic-link events
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null);
+      if (mounted) setUser(session?.user ?? null);
     });
-    return () => subscription.unsubscribe();
+    return () => { mounted = false; subscription.unsubscribe(); };
   }, []);
 
   // ── App state ────────────────────────────────────────────────────────────────
@@ -3070,7 +3173,7 @@ export default function SanctumApp() {
   // IMPORTANT: these early returns must come AFTER every hook above, or React
   // throws error #310 (hook count mismatch between renders).
   if (authLoading) return <StudySplash message="awakening the study…" />;
-  if (!user) return <AuthScreen />;
+  if (!IS_DESKTOP && !user) return <AuthScreen />;
   if (!ready) {
     return syncStatus === "offline" ? (
       <StudySplash
@@ -3199,7 +3302,9 @@ export default function SanctumApp() {
           })}
         </nav>
         <div className="px-3 pb-3 space-y-2">
-          <SyncIndicator status={syncStatus} user={user} onSignOut={handleSignOut} />
+          {IS_DESKTOP
+            ? <LocalSaveIndicator status={syncStatus} />
+            : user ? <SyncIndicator status={syncStatus} user={user} onSignOut={handleSignOut} /> : null}
           <ThemeSwitcher activeTheme={state.theme} onSelect={(id) => setState((s: any) => ({ ...s, theme: id }))} />
         </div>
         <div className="p-4 border-t mt-auto" style={{ borderColor: `hsl(${theme.vars.border} / 0.4)` }}>

@@ -3,3 +3,8 @@ dist/
 src-tauri/target/
 src-tauri/gen/schemas/
 .DS_Store
+
+# Local website credentials (the desktop app does not need these).
+.env
+.env.*
+!.env.example

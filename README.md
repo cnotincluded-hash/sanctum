@@ -3,12 +3,13 @@
 # Sanctum
 
 A cozy personal productivity and health dashboard — part wizard's study, part
-RPG for a bit of fun. Track habits, focus sessions, tasks, fasting windows, and
+RPG character sheet. Track habits, focus sessions, tasks, fasting windows, and
 health metrics while leveling up an XP/progression system.
 
 Use it on the web at **https://cnotincluded-hash.github.io/sanctum/**, or
-install the desktop app for Windows and Mac. Both sign in to the same account,
-so your study is the same everywhere.
+install the desktop app for Windows and Mac. The website can sync through a
+Sanctum account. The desktop app is local-only: it opens without sign-in and
+stores your study in a JSON file on your computer.
 
 A Caffeine Not Included tool.
 
@@ -43,46 +44,47 @@ Get the latest version from the [Releases](../../releases) page:
 
 ### Install
 
-- React 18 + TypeScript
-- Vite
-- Tailwind CSS
-- [lucide-react](https://lucide.dev/) for icons
-- No backend — all data is stored in the browser's `localStorage` or a folder if the app in being used.
+Sanctum isn't code-signed yet, so your computer asks you to confirm it the first time.
+
+**Windows**
+
+1. Run the `.msi` or `-setup.exe`.
+2. If a blue *Windows protected your PC* box appears, click **More info**, then **Run anyway**.
+
+**Mac**
+
+1. Open the `.dmg` and drag **Sanctum** into **Applications**.
+2. Open Sanctum. When macOS says it can't check the app, click **Done**.
+3. Open **System Settings → Privacy & Security**, scroll down to the message about Sanctum, click **Open Anyway** and confirm.
+
+If macOS says the app *is damaged and can't be opened*, run this once in Terminal, then open it again:
+
+```
+xattr -cr "/Applications/Sanctum.app"
+```
 
 ### Signing in
 
-Enter your email and Sanctum sends you a sign-in email. In the desktop app,
-type the **code** from that email (the link in it only opens the website).
+The installed desktop app does **not** require an account or internet access.
+Open Sanctum and start using it straight away. The website version continues to
+use email sign-in for account sync.
 
-The code only appears in the email once the Supabase email template includes
-it — a one-time setup:
+### Your desktop data
 
-1. In Supabase, open **Authentication → Emails → Templates → Magic Link**
-   (in older dashboards: **Authentication → Email Templates**).
-2. Add a line with the code to the message body, for example:
-   ```html
-   <p>Or type this code in Sanctum: <strong>{{ .Token }}</strong></p>
-   ```
-3. Click **Save**.
+The desktop app automatically saves your study to:
 
-The website accepts both the link and the code.
+- **Windows:** `%USERPROFILE%\Documents\Sanctum\sanctum-data.json`
+- **Mac:** `~/Documents/Sanctum/sanctum-data.json`
 
-## Your data
+The file is ordinary JSON, so you can copy it to back up your data. Sanctum also
+keeps a small browser-storage recovery copy and can use it if it is newer than
+the file (for example, when upgrading from an earlier desktop build).
 
-Your study is saved to your Sanctum account (Supabase) and on each device you
-use, so the website, your phone and the desktop app all show the same thing.
-
-- **Every change** is saved on the device straight away and to your account a
-  moment later. The account icon at the bottom of the sidebar shows whether
-  the latest change has reached your account.
-- **Offline.** On a device you've used before, Sanctum opens with what's on
-  that device and sends your changes when the connection comes back.
-- **A new device** waits until it has loaded your account's data before it
-  opens, so it can never replace your data with a blank study.
-- **Several devices.** When you switch back to Sanctum, it picks up changes
-  made elsewhere. If two devices change things while both are offline, the
-  most recent change wins.
-- **Signing out** sends any unsent change first.
+Desktop changes stay on this computer; they are not uploaded to an account.
+The website version remains separate and continues to use Supabase for account
+sync. To configure website sync when building locally, copy `.env.example` to
+`.env` and fill in `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` from your
+Supabase project. Those settings are not needed for the desktop app.
 
 ## Run and build it yourself
 
@@ -123,7 +125,7 @@ deploying on every push to `main` as before.
 | `src/App.tsx` | The whole app: pages, components, state and styling |
 | `src/sync.ts` | The rules for keeping devices and your account in step |
 | `src/desktop.ts` | The few differences in the desktop app (links open in your browser) |
-| `src/supabase.ts` | The connection to your Supabase project |
+| `src/supabase.ts` | Website-only connection to your Supabase project |
 | `vite.config.ts` | Builds the website for `/sanctum/` and the desktop app for its own root |
 | `src-tauri/` | The desktop app shell: window, icons, installer settings (`tauri.conf.json`) |
 | `assets/app-icon.svg` | The app icon. After editing, export a 1024 px PNG to `assets/app-icon.png` and run `npx tauri icon assets/app-icon.png` |

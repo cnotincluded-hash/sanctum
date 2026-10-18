@@ -51,7 +51,7 @@ jobs:
             Windows: download the .msi (or the -setup.exe) and run it.
             Mac: download the .dmg, open it and drag Sanctum into Applications.
             First launch on either system shows a warning because the app isn't signed; see the README for the one-time step.
-            Sign in with the code from your sign-in email.
+            No account or sign-in is needed. Desktop data is saved in Documents/Sanctum/sanctum-data.json.
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
