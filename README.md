@@ -3,7 +3,7 @@
 # Sanctum
 
 A cozy personal productivity and health dashboard — part wizard's study, part
-RPG character sheet. Track habits, focus sessions, tasks, fasting windows, and
+RPG for a bit of fun. Track habits, focus sessions, tasks, fasting windows, and
 health metrics while leveling up an XP/progression system.
 
 Use it on the web at **https://cnotincluded-hash.github.io/sanctum/**, or
@@ -43,24 +43,11 @@ Get the latest version from the [Releases](../../releases) page:
 
 ### Install
 
-Sanctum isn't code-signed yet, so your computer asks you to confirm it the first time.
-
-**Windows**
-
-1. Run the `.msi` or `-setup.exe`.
-2. If a blue *Windows protected your PC* box appears, click **More info**, then **Run anyway**.
-
-**Mac**
-
-1. Open the `.dmg` and drag **Sanctum** into **Applications**.
-2. Open Sanctum. When macOS says it can't check the app, click **Done**.
-3. Open **System Settings → Privacy & Security**, scroll down to the message about Sanctum, click **Open Anyway** and confirm.
-
-If macOS says the app *is damaged and can't be opened*, run this once in Terminal, then open it again:
-
-```
-xattr -cr "/Applications/Sanctum.app"
-```
+- React 18 + TypeScript
+- Vite
+- Tailwind CSS
+- [lucide-react](https://lucide.dev/) for icons
+- No backend — all data is stored in the browser's `localStorage` or a folder if the app in being used.
 
 ### Signing in
 
