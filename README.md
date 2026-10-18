@@ -1,7 +1,7 @@
 # Sanctum
 
 A cozy personal productivity and health dashboard — part wizard's study, part
-RPG character sheet. Track habits, focus sessions, tasks, fasting windows, and
+RPG for a bit of fun. Track habits, focus sessions, tasks, fasting windows, and
 health metrics while leveling up an XP/progression system.
 
 ![Sanctum](https://img.shields.io/badge/built%20with-React%20%2B%20Vite-7c3aed)
