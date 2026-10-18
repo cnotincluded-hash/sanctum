@@ -1,6 +1,6 @@
 [package]
 name = "sanctum"
-version = "1.0.1"
+version = "1.1.0"
 description = "Sanctum: your arcane study"
 authors = ["Caffeine Not Included"]
 edition = "2021"

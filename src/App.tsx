@@ -1,12 +1,15 @@
 import { useState, useEffect, useRef, useCallback, type ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
-  Trophy, CheckCircle, Brain, BookOpen, Flame, Plus, Book, Check, X, Trash2, Undo2,
-  Droplets, Dumbbell, Pencil, Star, Heart, Zap, Sun, Moon, Coffee, Music, Leaf,
-  CheckSquare, Play, Square, Pause, RotateCcw, Droplet, Footprints, Smile, Minus,
-  LayoutDashboard, Timer, Activity, XCircle, History, Menu, NotebookPen, LogOut,
-  Wifi, WifiOff, Loader, HardDrive,
+  Activity, Book, BookOpen, Brain, Check, CheckCircle, CheckSquare, ChevronRight, Coffee, Droplet, Droplets,
+  Dumbbell, Footprints, GripVertical, HardDrive, Heart, History, LayoutGrid, Leaf, Loader, LogOut, Mail, Menu,
+  Minus, Moon, Music, NotebookPen, Pause, Pencil, Play, Plus, RotateCcw, Smile, Square, Star, Sun, Timer,
+  Trash2, X, XCircle, Zap,
 } from "lucide-react";
+import {
+  Btn, PageHeader, SectionHead, PanelHead, SegBars, Ring, MoodFace, MoodPicker, MOOD_LABELS, EmptyState,
+  usePopover, FlameMark, LogoTile, cx,
+} from "./ui";
 import { supabase } from "./supabase";
 import type { SupabaseUser } from "./supabase";
 import { IS_DESKTOP } from "./desktop";
@@ -173,6 +176,9 @@ type ThemePalette = {
     bgCard: string;        // card background (was 228 34% 10%)
     border: string;        // base border hue (was 228 25% 16%)
   };
+  /** Design B ("sleek arcane") colours, each "H S% L%": the bright accent used for
+   *  buttons and highlights, the second accent (violet in Amethyst), and the page ground. */
+  ui: { accent: string; accent2: string; ground: string };
 };
 
 const THEMES: Record<ThemeId, ThemePalette> = {
@@ -186,6 +192,7 @@ const THEMES: Record<ThemeId, ThemePalette> = {
       accent2: "270 60% 60%", accent2Soft: "270 60% 72%",
       bg: "228 38% 7%", bgPanel: "228 36% 8%", bgCard: "228 34% 10%", border: "228 25% 16%",
     },
+    ui: { accent: "37 86% 63%", accent2: "254 100% 71%", ground: "233 33% 5%" },
   },
   emerald: {
     id: "emerald",
@@ -197,6 +204,7 @@ const THEMES: Record<ThemeId, ThemePalette> = {
       accent2: "168 55% 50%", accent2Soft: "168 55% 64%",
       bg: "160 30% 6%", bgPanel: "160 28% 7%", bgCard: "158 26% 9%", border: "158 20% 16%",
     },
+    ui: { accent: "152 58% 56%", accent2: "172 60% 52%", ground: "165 32% 4.5%" },
   },
   bloodmoon: {
     id: "bloodmoon",
@@ -208,6 +216,7 @@ const THEMES: Record<ThemeId, ThemePalette> = {
       accent2: "15 70% 50%", accent2Soft: "15 70% 64%",
       bg: "350 30% 6%", bgPanel: "350 28% 7%", bgCard: "350 24% 9%", border: "350 20% 17%",
     },
+    ui: { accent: "356 82% 65%", accent2: "18 85% 62%", ground: "350 30% 5%" },
   },
   frostbound: {
     id: "frostbound",
@@ -219,6 +228,7 @@ const THEMES: Record<ThemeId, ThemePalette> = {
       accent2: "215 50% 62%", accent2Soft: "215 55% 74%",
       bg: "215 32% 7%", bgPanel: "215 30% 8%", bgCard: "215 26% 10%", border: "215 20% 17%",
     },
+    ui: { accent: "196 85% 62%", accent2: "224 88% 72%", ground: "218 38% 5%" },
   },
   solarflare: {
     id: "solarflare",
@@ -230,6 +240,7 @@ const THEMES: Record<ThemeId, ThemePalette> = {
       accent2: "45 90% 55%", accent2Soft: "45 85% 65%",
       bg: "20 30% 7%", bgPanel: "20 28% 8%", bgCard: "18 24% 10%", border: "18 22% 17%",
     },
+    ui: { accent: "27 92% 60%", accent2: "45 95% 60%", ground: "20 32% 5%" },
   },
 };
 
@@ -284,6 +295,8 @@ function themeCssVars(theme: ThemePalette): string {
     `--bg-h: ${bh}; --bg-s: ${bs}%;`,
     shadeVars("amber", TW_AMBER, base.accent, v.accent),
     shadeVars("violet", TW_VIOLET, base.accent2, v.accent2),
+    `--ui-accent: ${theme.ui.accent}; --ui-accent2: ${theme.ui.accent2}; --ui-ground: ${theme.ui.ground};`,
+    `--ui-on-accent: ${hslParts(theme.ui.accent)[0]} 45% 7%;`,
   ].join("\n");
 }
 
@@ -788,75 +801,64 @@ function simulateBattle(playerStats: { hp: number; atk: number; def: number; spe
 
 /* ============================== Greeting ============================== */
 
-function getGreeting() {
-  const h = new Date().getHours();
-  if (h < 5) return { text: "Burning the midnight oil.", sub: "The sanctum is yours alone." };
-  if (h < 10) return { text: "Good morning, scholar.", sub: "The day is fresh and awaiting your will." };
-  if (h < 13) return { text: "Good day.", sub: "Stay the course — great works take time." };
-  if (h < 17) return { text: "Afternoon light.", sub: "Your studies continue, archmage." };
-  if (h < 21) return { text: "Good evening.", sub: "The candle burns bright in the study." };
-  return { text: "The hour grows late.", sub: "Rest beckons, but there's still time." };
+function getGreeting(now = new Date()) {
+  const h = now.getHours();
+  if (h < 5) return { lead: "Still awake,", sub: "The sanctum is yours alone." };
+  if (h < 12) return { lead: "Good morning,", sub: "The day is fresh and awaiting your will." };
+  if (h < 17) return { lead: "Good afternoon,", sub: "Stay the course — great works take time." };
+  if (h < 22) return { lead: "Good evening,", sub: "The candle burns bright in the study." };
+  return { lead: "The hour grows late,", sub: "Rest beckons, but there's still time." };
 }
 
-/* ============================== Reusable UI bits ============================== */
-
-function Card({ children, className, style, onClick }: any) {
-  return (
-    <div
-      onClick={onClick}
-      className={cn("rounded-xl border", className)}
-      style={{ borderColor: "hsl(var(--bg-h) calc(var(--bg-s) * 0.6579) 16%)", ...style }}
-    >
-      {children}
-    </div>
-  );
-}
-function CardContent({ children, className }: any) {
-  return <div className={className}>{children}</div>;
-}
-function Button({ children, className, style, onClick, disabled, variant, size }: any) {
-  const base = "inline-flex items-center justify-center rounded-lg font-medium transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed";
-  const sizes: Record<string, string> = { sm: "h-7 px-2.5 text-xs", lg: "h-12 px-6 text-base", default: "h-9 px-4 text-sm" };
-  const variants: Record<string, string> = {
-    default: "bg-amber-500 text-slate-950 hover:bg-amber-400",
-    outline: "border bg-transparent",
-    secondary: "bg-slate-700 text-slate-100 hover:bg-slate-600",
-    destructive: "bg-red-600 text-white hover:bg-red-500",
-    ghost: "bg-transparent hover:bg-white/5",
-  };
-  return (
-    <button
-      onClick={onClick}
-      disabled={disabled}
-      className={cn(base, sizes[size || "default"], variants[variant || "default"], className)}
-      style={style}
-    >
-      {children}
-    </button>
-  );
-}
-function Input({ className, style, ...props }: any) {
-  return (
-    <input
-      {...props}
-      className={cn(
-        "w-full rounded-lg border bg-transparent px-3 py-2 text-sm outline-none transition-colors placeholder:text-slate-500",
-        className
-      )}
-      style={{ borderColor: "hsl(var(--bg-h) calc(var(--bg-s) * 0.6579) 20%)", color: "inherit", ...style }}
-    />
-  );
-}
-function ArcaneDivider({ children, className }: any) {
-  return (
-    <div className={cn("flex items-center gap-2 uppercase tracking-[0.15em] text-[11px] font-semibold", className)}>
-      {children}
-      <div className="flex-1 h-px" style={{ background: "linear-gradient(90deg, hsl(var(--bg-h) calc(var(--bg-s) * 0.6579) 20%), transparent)" }} />
-    </div>
-  );
+/** "Friday, 16 October" */
+function formatLongDate(d = new Date()) {
+  return `${d.toLocaleDateString("en-GB", { weekday: "long" })}, ${d.toLocaleDateString("en-GB", { day: "numeric", month: "long" })}`;
 }
 
-/* ============================== Dragon Familiar ============================== */
+/** Re-renders every `ms` so clocks and timers stay current. */
+function useNow(ms = 1000, enabled = true) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    if (!enabled) return;
+    const t = setInterval(() => setNow(Date.now()), ms);
+    return () => clearInterval(t);
+  }, [ms, enabled]);
+  return now;
+}
+
+/** Current streak (consecutive days up to today or yesterday) for every ritual. */
+function habitStreaks(state: any): Record<number, number> {
+  const byHabit: Record<number, Set<string>> = {};
+  for (const c of state.habitCompletions as HabitCompletion[]) (byHabit[c.habitId] ??= new Set()).add(c.date);
+  const out: Record<number, number> = {};
+  const today = todayStr();
+  for (const h of state.habits as Habit[]) {
+    const dates = byHabit[h.id] ?? new Set<string>();
+    const d = new Date();
+    if (!dates.has(today)) d.setDate(d.getDate() - 1);
+    let n = 0;
+    while (n < 3650 && dates.has(d.toISOString().split("T")[0])) { n++; d.setDate(d.getDate() - 1); }
+    out[h.id] = n;
+  }
+  return out;
+}
+
+/** Focus minutes for each day of this week, Monday first. */
+function focusThisWeek(state: any) {
+  const now = new Date();
+  const monday = new Date(now);
+  monday.setHours(0, 0, 0, 0);
+  monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7));
+  const days = Array.from({ length: 7 }, () => 0);
+  for (const s of state.focusSessions as FocusSession[]) {
+    const t = new Date(s.startedAt);
+    const idx = Math.floor((t.getTime() - monday.getTime()) / 86_400_000);
+    if (idx >= 0 && idx < 7) days[idx] += s.durationMinutes;
+  }
+  return { days, todayIdx: (now.getDay() + 6) % 7 };
+}
+
+/* ============================== Ember, the familiar ============================== */
 
 type DragonPose = "idle" | "reading" | "questing" | "focusing" | "tending" | "sleeping" | "cheer" | "petted";
 
@@ -892,8 +894,8 @@ function useDragonFlavor(pose: DragonPose) {
   return line;
 }
 
+/** Mixes a hex colour toward white (lighten > 0) or black (lighten < 0). */
 function hslShade(hex: string, lighten: number) {
-  // crude lighten/darken for a hex color by mixing toward white/black
   const num = parseInt(hex.replace("#", ""), 16);
   let r = (num >> 16) & 255, g = (num >> 8) & 255, b = num & 255;
   const mix = (c: number) => Math.max(0, Math.min(255, Math.round(c + (lighten > 0 ? (255 - c) * lighten : c * lighten))));
@@ -901,648 +903,673 @@ function hslShade(hex: string, lighten: number) {
   return `rgb(${r}, ${g}, ${b})`;
 }
 
-/** Pure SVG/CSS tiny dragon. `size` in px. `pose` changes posture/eye state. */
-function DragonSprite({ pose, size = 56, bounce = false, color = "#a855f7", onPet }: { pose: DragonPose; size?: number; bounce?: boolean; color?: string; onPet?: () => void }) {
-  const bodyColor = color;
-  const bellyColor = hslShade(color, 0.45);
-  const wingColor = hslShade(color, 0.15);
+function hexHue(hex: string): { hue: number; sat: number } {
+  const num = parseInt(hex.replace("#", ""), 16);
+  const r = ((num >> 16) & 255) / 255, g = ((num >> 8) & 255) / 255, b = (num & 255) / 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
+  if (d === 0) return { hue: 0, sat: 0 };
+  const l = (max + min) / 2;
+  const sat = d / (1 - Math.abs(2 * l - 1));
+  let hue = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  hue = (hue * 60 + 360) % 360;
+  return { hue, sat };
+}
+
+/**
+ * Ember, drawn in the redesign's style. `color` is the familiar's chosen colour;
+ * horns, belly and spines use the theme accent unless that is too close to the
+ * body colour, when they use a pale tint instead. `pose` changes the eye and extras.
+ */
+function DragonSprite({ pose, size = 56, bounce = false, color = "#a855f7", accentHue = 37, onPet, petLabel }: {
+  pose: DragonPose; size?: number; bounce?: boolean; color?: string; accentHue?: number; onPet?: () => void; petLabel?: string;
+}) {
+  const { hue, sat } = hexHue(color);
+  const hueGap = Math.min(Math.abs(hue - accentHue), 360 - Math.abs(hue - accentHue));
+  const trim = sat > 0.25 && hueGap < 40 ? hslShade(color, 0.6) : "hsl(var(--ui-accent))";
+  const wingBack = hslShade(color, -0.55);
+  const tail = hslShade(color, -0.42);
+  const body = hslShade(color, -0.25);
+  const head = hslShade(color, -0.12);
+  const snout = hslShade(color, 0.02);
+  const wingFront = hslShade(color, 0.18);
+  const ink = hslShade(color, -0.75);
   const eyesClosed = pose === "sleeping" || pose === "focusing";
-  const happyEyes = pose === "petted" || pose === "cheer";
-  const tilt = pose === "reading" ? -8 : pose === "questing" ? 6 : pose === "petted" ? -4 : 0;
+  const happy = pose === "petted" || pose === "cheer";
+  const tilt = pose === "reading" ? -6 : pose === "questing" ? 5 : pose === "petted" ? -4 : 0;
+  const motion = bounce ? "dragon-bounce" : pose === "idle" ? "dragon-float" : pose === "focusing" || pose === "sleeping" ? "dragon-breathe" : "";
 
+  const art = (
+    <svg viewBox="0 0 200 200" width={size} height={size} aria-hidden="true"
+      style={{ transform: `rotate(${tilt}deg)`, transition: "transform 0.4s ease", overflow: "visible" }}>
+      <path d="M96 104 C 82 70, 70 52, 52 44 C 60 62, 58 74, 66 86 C 56 84, 50 92, 46 100 C 60 98, 72 104, 84 116 Z" style={{ fill: wingBack }} />
+      <path d="M78 168 C 48 176, 26 160, 32 140 C 36 128, 50 126, 56 134 C 48 132, 42 140, 46 148 C 52 160, 70 160, 84 154 Z" style={{ fill: tail }} />
+      <path d="M33 141 L 20 128 L 39 131 Z" style={{ fill: trim }} />
+      <path d="M70 170 C 62 132, 78 104, 108 102 C 138 100, 152 128, 146 170 Z" style={{ fill: body }} />
+      <path d="M92 170 C 88 144, 98 122, 114 120 C 130 120, 136 144, 132 170 Z" style={{ fill: trim, opacity: 0.92 }} />
+      <path d="M97 138 Q 114 144 131 138 M95 150 Q 114 156 133 150 M94 162 Q 114 168 134 162" style={{ fill: "none", stroke: "rgba(0,0,0,0.18)", strokeWidth: 2 }} />
+      <g className={pose === "cheer" ? "dragon-wing-flap" : undefined}>
+        <path d="M84 118 C 72 88, 74 62, 92 46 C 94 64, 100 72, 110 78 C 100 82, 98 92, 102 100 C 94 104, 88 110, 84 118 Z" style={{ fill: wingFront }} />
+        <path d="M90 50 C 90 70, 94 86, 86 112 M99 76 C 96 88, 92 98, 88 110" style={{ fill: "none", stroke: tail, strokeWidth: 2 }} />
+      </g>
+      <ellipse cx="102" cy="171" rx="12" ry="6" style={{ fill: wingBack }} />
+      <ellipse cx="132" cy="171" rx="12" ry="6" style={{ fill: wingBack }} />
+      <path d="M112 108 C 112 92, 118 82, 128 76 L 146 86 C 140 94, 136 104, 134 116 Z" style={{ fill: body }} />
+      <path d="M100 104 L 104 93 L 110 103 Z M88 114 L 90 103 L 97 112 Z" style={{ fill: trim }} />
+      <path d="M114 70 C 114 50, 132 40, 150 44 C 166 48, 182 58, 182 72 C 182 84, 170 90, 156 90 C 136 92, 114 88, 114 70 Z" style={{ fill: head }} />
+      <path d="M156 64 C 168 64, 182 66, 182 74 C 182 84, 170 88, 158 86 Z" style={{ fill: snout }} />
+      <path d="M124 54 C 116 40, 110 30, 98 26 C 108 36, 112 46, 118 60 Z" style={{ fill: trim }} />
+      <path d="M138 47 C 134 32, 128 22, 118 16 C 126 28, 128 38, 130 50 Z" style={{ fill: trim, opacity: 0.8 }} />
+      <path d="M118 74 L 102 70 L 116 84 Z" style={{ fill: tail }} />
+      {eyesClosed ? (
+        <path d="M140 67 Q 149 72 158 67" style={{ fill: "none", stroke: ink, strokeWidth: 2.6, strokeLinecap: "round" }} />
+      ) : happy ? (
+        <path d="M140 69 Q 149 60 158 69" style={{ fill: "none", stroke: ink, strokeWidth: 2.6, strokeLinecap: "round" }} />
+      ) : (
+        <>
+          <path d="M140 66 C 144 60, 154 60, 158 66 C 154 72, 144 72, 140 66 Z" style={{ fill: "#fff6dc" }} />
+          <ellipse cx="149" cy="66" rx="2.2" ry="5" style={{ fill: "#14102a" }} />
+          <circle cx="151" cy="63" r="1.4" style={{ fill: "#ffffff" }} />
+          <path d="M138 59 Q 148 53 160 58" style={{ fill: "none", stroke: wingBack, strokeWidth: 2.5, strokeLinecap: "round" }} />
+        </>
+      )}
+      <circle cx="175" cy="70" r="1.8" style={{ fill: ink }} />
+      <path d="M160 82 Q 170 85 178 80" style={{ fill: "none", stroke: ink, strokeWidth: 2, strokeLinecap: "round" }} />
+      <ellipse cx="148" cy="78" rx="6" ry="3.5" style={{ fill: "#ff9ec4", opacity: happy ? 0.7 : 0.45 }} />
+      {pose === "sleeping" && <text x="168" y="36" className="dragon-zzz" style={{ fill: "var(--sub)", fontSize: 26, fontFamily: "var(--font-display)" }}>z</text>}
+      {pose === "cheer" && <text x="172" y="40" className="dragon-sparkle" style={{ fill: "hsl(var(--ui-accent))", fontSize: 26 }}>✦</text>}
+      {pose === "petted" && <text x="170" y="40" className="dragon-sparkle" style={{ fill: "#ff8fb4", fontSize: 26 }}>♥</text>}
+    </svg>
+  );
+
+  if (!onPet) return <div className={cx("select-none", motion)} style={{ width: size, height: size }}>{art}</div>;
   return (
-    <div
-      className={cn("relative select-none", bounce && "dragon-bounce", onPet && "cursor-pointer")}
-      style={{ width: size, height: size }}
-      title={onPet ? "Pet your familiar" : pose}
-      onClick={onPet}
-    >
-      <svg
-        viewBox="0 0 100 100"
-        width={size}
-        height={size}
-        style={{ transform: `rotate(${tilt}deg)`, transition: "transform 0.4s ease" }}
-        className={pose === "idle" ? "dragon-float" : pose === "focusing" ? "dragon-breathe" : ""}
-      >
-        {/* tail */}
-        <path d="M 30 78 Q 12 80 14 66 Q 16 76 30 72 Z" fill={bodyColor} />
-        {/* wings */}
-        <path d="M 38 40 Q 16 28 18 14 Q 34 22 44 38 Z" fill={wingColor} opacity={0.85} className={pose === "cheer" ? "dragon-wing-flap" : ""} />
-        <path d="M 62 40 Q 84 28 82 14 Q 66 22 56 38 Z" fill={wingColor} opacity={0.85} className={pose === "cheer" ? "dragon-wing-flap" : ""} />
-        {/* body */}
-        <ellipse cx="50" cy="62" rx="26" ry="22" fill={bodyColor} />
-        {/* belly */}
-        <ellipse cx="50" cy="68" rx="15" ry="12" fill={bellyColor} opacity={0.9} />
-        {/* head */}
-        <circle cx="50" cy="36" r="20" fill={bodyColor} />
-        {/* snout */}
-        <ellipse cx="50" cy="44" rx="10" ry="7" fill={bellyColor} opacity={0.9} />
-        {/* horns */}
-        <path d="M 38 22 L 34 10 L 42 20 Z" fill={bellyColor} />
-        <path d="M 62 22 L 66 10 L 58 20 Z" fill={bellyColor} />
-        {/* eyes */}
-        {eyesClosed ? (
-          <>
-            <path d="M 40 34 Q 44 37 48 34" stroke="#1a1530" strokeWidth="2.2" fill="none" strokeLinecap="round" />
-            <path d="M 52 34 Q 56 37 60 34" stroke="#1a1530" strokeWidth="2.2" fill="none" strokeLinecap="round" />
-          </>
-        ) : happyEyes ? (
-          <>
-            <path d="M 39 35 Q 43 31 47 35" stroke="#1a1530" strokeWidth="2.4" fill="none" strokeLinecap="round" />
-            <path d="M 53 35 Q 57 31 61 35" stroke="#1a1530" strokeWidth="2.4" fill="none" strokeLinecap="round" />
-          </>
-        ) : (
-          <>
-            <circle cx="43" cy="34" r="3.4" fill="#1a1530" />
-            <circle cx="57" cy="34" r="3.4" fill="#1a1530" />
-            <circle cx="44" cy="33" r="1" fill="white" />
-            <circle cx="58" cy="33" r="1" fill="white" />
-          </>
-        )}
-        {/* nostrils */}
-        <circle cx="46" cy="46" r="1" fill="#1a1530" opacity={0.6} />
-        <circle cx="54" cy="46" r="1" fill="#1a1530" opacity={0.6} />
-        {/* spine spikes */}
-        <path d="M 50 16 L 53 22 L 47 22 Z" fill={bellyColor} />
-        <path d="M 36 46 L 31 49 L 36 52 Z" fill={bellyColor} opacity={0.8} />
-        <path d="M 64 46 L 69 49 L 64 52 Z" fill={bellyColor} opacity={0.8} />
-        {/* sleeping zzz */}
-        {pose === "sleeping" && (
-          <text x="68" y="20" fontSize="10" fill={hslShade(color, 0.4)} fontFamily="Georgia, serif" className="dragon-zzz">z</text>
-        )}
-        {/* book for reading pose */}
-        {pose === "reading" && (
-          <rect x="38" y="76" width="24" height="4" rx="1" fill={bellyColor} opacity={0.85} />
-        )}
-        {/* cheer / petted sparkle */}
-        {(pose === "cheer" || pose === "petted") && (
-          <text x="68" y="22" fontSize="11" style={{ fill: "hsl(var(--accent-h) var(--accent-s) 62%)" }} className="dragon-sparkle">{pose === "petted" ? "♥" : "✦"}</text>
-        )}
-      </svg>
-    </div>
+    <button type="button" onClick={onPet} aria-label={petLabel ?? "Pet your familiar"} title={petLabel ?? "Pet your familiar"}
+      className={cx("select-none rounded-full", motion)} style={{ width: size, height: size, padding: 0, border: 0, background: "transparent", cursor: "pointer" }}>
+      {art}
+    </button>
   );
 }
 
-/** Small persistent corner companion shown on every page. */
-function DragonCorner({ pose, bounce, familiar, onPet }: { pose: DragonPose; bounce: boolean; familiar: Familiar; onPet: () => void }) {
+/** Small companion in the corner of every page except the dashboard. */
+function DragonCorner({ pose, bounce, familiar, onPet, accentHue }: { pose: DragonPose; bounce: boolean; familiar: Familiar; onPet: () => void; accentHue: number }) {
   const line = useDragonFlavor(pose);
   return (
-    <div className="fixed bottom-4 right-4 z-30 flex items-end gap-2" aria-hidden="true">
-      <div
-        className="hidden sm:block rounded-lg px-2.5 py-1.5 text-[11px] italic text-slate-300 mb-1 pointer-events-none"
-        style={{ background: "hsl(var(--bg-h) calc(var(--bg-s) * 0.9474) 10% / 0.85)", border: "1px solid hsl(var(--bg-h) calc(var(--bg-s) * 0.6579) 20%)", backdropFilter: "blur(4px)" }}
-      >
-        {familiar.name}: {line}
+    <div className="fixed bottom-4 right-4 z-30 flex items-end gap-2">
+      <div className="hidden sm:block popover px-3 py-2 mb-1 pointer-events-none" style={{ fontSize: 12, color: "var(--text-3)", borderRadius: 12 }}>
+        <span style={{ color: "var(--text)", fontWeight: 600 }}>{familiar.name}</span> · {line}
       </div>
-      <div
-        className="rounded-full p-1.5"
-        style={{ background: "hsl(var(--bg-h) calc(var(--bg-s) * 0.9474) 10% / 0.7)", border: "1px solid hsl(var(--accent-h) var(--accent-s) 52% / 0.2)", boxShadow: "0 0 20px rgba(0,0,0,0.4)" }}
-      >
-        <DragonSprite pose={pose} size={48} bounce={bounce} color={familiar.color} onPet={onPet} />
+      <div className="popover flex items-center justify-center" style={{ width: 64, height: 64, borderRadius: "50%" }}>
+        <DragonSprite pose={pose} size={52} bounce={bounce} color={familiar.color} accentHue={accentHue} onPet={onPet} petLabel={`Pet ${familiar.name}`} />
       </div>
     </div>
   );
 }
 
-/** Larger featured dragon for the dashboard, with naming/color editing and petting. */
-function DragonFeature({ pose, bounce, familiar, setState, onPet }: { pose: DragonPose; bounce: boolean; familiar: Familiar; setState: any; onPet: () => void }) {
+/* ============================== Dashboard ============================== */
+
+type NavFn = (page: string) => void;
+type StartFocusFn = (minutes: number) => void;
+
+function DashboardPage({ state, setState, dragonPose, dragonBounce, onPetFamiliar, onNavigate, onStartFocus, accentHue }: {
+  state: any; setState: any; dragonPose: DragonPose; dragonBounce: boolean; onPetFamiliar: () => void;
+  onNavigate: NavFn; onStartFocus: StartFocusFn; accentHue: number;
+}) {
+  useNow(60_000); // keeps the greeting and date current
+  const summary = computeSummary(state);
+  const { lead, sub } = getGreeting();
+  const quick = usePopover();
+  const [quickText, setQuickText] = useState("");
+
+  const addQuickQuest = () => {
+    const title = quickText.trim();
+    if (!title) return;
+    const task: Task = { id: nextId(), title, status: "todo", priority: "medium" };
+    setState((s: any) => ({ ...s, tasks: [...s.tasks, task] }));
+    setQuickText("");
+    quick.setOpen(false);
+  };
+
+  return (
+    <div className="flex flex-col gap-[18px] animate-in">
+      <header className="flex flex-wrap items-end justify-between gap-5 px-2 pt-3">
+        <div className="min-w-0">
+          <div className="eyebrow" style={{ fontSize: 13, letterSpacing: "0.14em" }}>{formatLongDate()}</div>
+          <h1 className="display mt-2.5" style={{ fontSize: "clamp(44px, 6vw, 66px)" }}>{lead} <em>scholar.</em></h1>
+          <p className="sub mt-3" style={{ fontSize: 16 }}>{sub}</p>
+        </div>
+        <div className="flex flex-wrap gap-2.5">
+          <div className="relative" ref={quick.ref}>
+            <Btn variant="glass" icon={<Plus className="w-4 h-4" />} aria-expanded={quick.open} onClick={() => quick.setOpen(!quick.open)}>Quick add</Btn>
+            {quick.open && (
+              <div className="popover absolute right-0 z-40 mt-2 p-3" style={{ width: 300 }}>
+                <label htmlFor="quick-quest" className="field-label">New quest</label>
+                <div className="flex gap-2">
+                  <input id="quick-quest" autoFocus className="field" placeholder="What needs doing?" value={quickText}
+                    onChange={(e) => setQuickText(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addQuickQuest()} />
+                  <Btn variant="primary" icon={<Plus className="w-4 h-4" />} aria-label="Add quest" onClick={addQuickQuest} disabled={!quickText.trim()} />
+                </div>
+                <p className="label mt-2 mb-0" style={{ fontSize: 12 }}>Added to Quests as medium priority.</p>
+              </div>
+            )}
+          </div>
+          <Btn variant="primary" icon={<Play className="w-3.5 h-3.5" fill="currentColor" />} onClick={() => onStartFocus(25)}>Start focus</Btn>
+        </div>
+      </header>
+
+      <div className="flex flex-wrap gap-[18px]">
+        <LevelCard summary={summary} />
+        <FamiliarCard pose={dragonPose} bounce={dragonBounce} familiar={state.familiar} setState={setState} onPet={onPetFamiliar} accentHue={accentHue} />
+      </div>
+
+      <StatTiles state={state} summary={summary} />
+
+      <DashboardWidgetGrid state={state} setState={setState} onNavigate={onNavigate} onStartFocus={onStartFocus} />
+    </div>
+  );
+}
+
+function LevelCard({ summary }: { summary: ReturnType<typeof computeSummary> }) {
+  const into = summary.xp % 100;
+  return (
+    <section aria-label="Level and experience" className="glass flex flex-wrap items-center justify-center sm:justify-start gap-x-[34px] gap-y-5"
+      style={{ flex: "2 1 480px", minHeight: 272, padding: "26px 30px" }}>
+      <Ring pct={into / 100} size={200} stroke={12}>
+        <div className="eyebrow" style={{ letterSpacing: "0.2em" }}>Level</div>
+        <div className="display tnum" style={{ fontSize: 80, lineHeight: 0.95 }}>{summary.level}</div>
+        <div className="sub" style={{ fontSize: 13, fontWeight: 600 }}>{into}%</div>
+      </Ring>
+      <div className="min-w-0 flex-1" style={{ minWidth: 220 }}>
+        <span className="chip chip-round" style={{ fontSize: 13, padding: "6px 12px", border: "1px solid var(--edge)" }}>
+          <span aria-hidden="true" style={{ width: 7, height: 7, borderRadius: "50%", background: "hsl(var(--ui-accent))" }} />
+          Archmage
+        </span>
+        <div className="display tnum mt-3.5" style={{ fontSize: 60 }}>
+          {summary.xp.toLocaleString()} <span style={{ fontSize: 26, color: "var(--sub)" }}>XP</span>
+        </div>
+        <div className="sub mt-2" style={{ fontSize: 15 }}>{summary.xpToNextLevel} XP until Level {summary.level + 1}</div>
+        <div className="mt-5 flex flex-wrap gap-2">
+          <span className="chip">Ritual +10</span>
+          <span className="chip">Quest +20</span>
+          <span className="chip">Focus +½ per min</span>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function FamiliarCard({ pose, bounce, familiar, setState, onPet, accentHue }: {
+  pose: DragonPose; bounce: boolean; familiar: Familiar; setState: any; onPet: () => void; accentHue: number;
+}) {
   const line = useDragonFlavor(pose);
-  const [editing, setEditing] = useState(false);
-  const [nameDraft, setNameDraft] = useState(familiar.name);
   const [petMsg, setPetMsg] = useState<string | null>(null);
+  const edit = usePopover();
+  const [nameDraft, setNameDraft] = useState(familiar.name);
+  const pets = familiar.affection ?? 0;
+  const bond = pets === 0 ? 0 : (pets % 50 === 0 ? 50 : pets % 50);
 
-  const handlePet = () => {
+  const pet = () => {
     onPet();
     if (Math.random() < 0.55) {
-      const msg = PET_MESSAGES[Math.floor(Math.random() * PET_MESSAGES.length)];
-      setPetMsg(msg);
+      setPetMsg(PET_MESSAGES[Math.floor(Math.random() * PET_MESSAGES.length)]);
       setTimeout(() => setPetMsg(null), 2800);
     }
   };
-
   const saveName = () => {
     const trimmed = nameDraft.trim();
     setState((s: any) => ({ ...s, familiar: { ...s.familiar, name: trimmed || s.familiar.name } }));
-    setEditing(false);
   };
-  const setColor = (color: string) => {
-    setState((s: any) => ({ ...s, familiar: { ...s.familiar, color } }));
-  };
+  const setColor = (color: string) => setState((s: any) => ({ ...s, familiar: { ...s.familiar, color } }));
 
   return (
-    <div className="flex items-start gap-4 px-2 relative">
-      <DragonSprite pose={pose} size={84} bounce={bounce} color={familiar.color} onPet={handlePet} />
-      <div>
-        <div className="flex items-center gap-2 mb-0.5">
-          {editing ? (
-            <Input
-              autoFocus
-              value={nameDraft}
-              onChange={(e: any) => setNameDraft(e.target.value)}
-              onKeyDown={(e: any) => { if (e.key === "Enter") saveName(); if (e.key === "Escape") { setNameDraft(familiar.name); setEditing(false); } }}
-              onBlur={saveName}
-              className="h-7 px-2 text-sm w-32"
-              maxLength={20}
-            />
-          ) : (
-            <button onClick={() => setEditing(true)} className="text-xs uppercase tracking-[0.15em] text-slate-500 font-semibold hover:text-amber-400 transition-colors flex items-center gap-1">
-              {familiar.name} <Pencil className="w-2.5 h-2.5 opacity-60" />
-            </button>
-          )}
+    <section aria-label="Your familiar" className="glass relative flex flex-col" style={{ flex: "1 1 300px", minHeight: 272, padding: "24px 24px 22px", zIndex: edit.open ? 30 : undefined }}>
+      <div className="flex items-center gap-4">
+        <div className="relative flex items-center justify-center shrink-0"
+          style={{ width: 128, height: 128, borderRadius: "50%", background: "radial-gradient(circle at 50% 46%, hsl(var(--ui-accent2) / 0.5), hsl(var(--ui-accent2) / 0.08) 62%, hsl(var(--ui-accent2) / 0) 72%)" }}>
+          <div aria-hidden="true" className="absolute" style={{ inset: 8, borderRadius: "50%", border: "1px solid rgba(255,255,255,0.10)" }} />
+          <DragonSprite pose={pose} size={112} bounce={bounce} color={familiar.color} accentHue={accentHue} onPet={pet} petLabel={`Pet ${familiar.name}`} />
         </div>
-        <div className="text-sm text-slate-300 italic min-h-[1.25rem]">{petMsg ? `"${petMsg}"` : line}</div>
-        <div className="flex gap-1.5 mt-2">
-          {FAMILIAR_COLORS.map((c) => (
-            <button key={c} onClick={() => setColor(c)}
-              className={cn("w-4 h-4 rounded-full border transition-transform hover:scale-115", familiar.color === c ? "border-white scale-115" : "border-transparent")}
-              style={{ background: c, boxShadow: familiar.color === c ? `0 0 6px ${c}` : "none" }} />
-          ))}
-        </div>
-        {familiar.affection > 0 && (
-          <div className="text-[10px] text-slate-500 mt-1.5 flex items-center gap-1">
-            <Heart className="w-2.5 h-2.5 text-pink-400" fill="currentColor" /> {familiar.affection} pets given
+        <div className="min-w-0">
+          <div className="eyebrow" style={{ letterSpacing: "0.18em" }}>Familiar</div>
+          <div className="flex items-center gap-1.5">
+            <div className="display truncate" style={{ fontSize: 42, lineHeight: 1.05 }}>{familiar.name}</div>
+            <div className="relative" ref={edit.ref}>
+              <Btn variant="quiet" size="sm" aria-label={`Rename or recolour ${familiar.name}`} aria-expanded={edit.open}
+                icon={<Pencil className="w-3.5 h-3.5" />} onClick={() => { setNameDraft(familiar.name); edit.setOpen(!edit.open); }} />
+              {edit.open && (
+                <div className="popover absolute left-0 z-40 mt-2 p-3" style={{ width: 248 }}>
+                  <label htmlFor="familiar-name" className="field-label">Name</label>
+                  <input id="familiar-name" className="field" maxLength={20} value={nameDraft} autoFocus
+                    onChange={(e) => setNameDraft(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") { saveName(); edit.setOpen(false); } }} />
+                  <div className="field-label mt-3">Colour</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {FAMILIAR_COLORS.map((c) => (
+                      <button key={c} type="button" onClick={() => setColor(c)} aria-label={`Colour ${c}`} aria-pressed={familiar.color === c}
+                        className="rounded-full" style={{ width: 26, height: 26, background: c, border: familiar.color === c ? "2px solid #fff" : "2px solid transparent", boxShadow: familiar.color === c ? `0 0 8px ${c}` : "none" }} />
+                    ))}
+                  </div>
+                  <Btn variant="primary" size="sm" wide className="mt-3" onClick={() => { saveName(); edit.setOpen(false); }}>Done</Btn>
+                </div>
+              )}
+            </div>
           </div>
-        )}
+          <div className="sub" style={{ fontSize: 14 }} aria-live="polite">{petMsg ? `“${petMsg}”` : line.charAt(0).toUpperCase() + line.slice(1)}</div>
+        </div>
       </div>
-    </div>
+      <div className="mt-auto pt-4">
+        <div className="flex justify-between sub" style={{ fontSize: 13 }}>
+          <span>Affection</span>
+          <span style={{ color: "#e4e6f1", fontWeight: 600 }}>{pets} {pets === 1 ? "pet" : "pets"}</span>
+        </div>
+        <div className="track mt-2" role="progressbar" aria-label="Affection toward the next bond" aria-valuemin={0} aria-valuemax={50} aria-valuenow={bond}>
+          <div className="fill fill-2" style={{ width: `${(bond / 50) * 100}%` }} />
+        </div>
+        <Btn variant="glass" wide className="mt-3.5" onClick={pet}
+          icon={<Heart className="w-[15px] h-[15px]" fill="#ff8fb4" stroke="none" />}>Pet {familiar.name}</Btn>
+      </div>
+    </section>
   );
 }
 
-/* ============================== Dashboard Page ============================== */
-
-function DashboardPage({ state, setState, dragonPose, dragonBounce, onPetFamiliar }: { state: any; setState: any; dragonPose: DragonPose; dragonBounce: boolean; onPetFamiliar: () => void }) {
-  const summary = computeSummary(state);
-  const { text: greeting, sub: greetingSub } = getGreeting();
-  const xpIntoLevel = summary.xp % 100;
+function StatTiles({ state, summary }: { state: any; summary: ReturnType<typeof computeSummary> }) {
+  const questsTotal = summary.tasksCompletedToday + summary.pendingTasks;
+  const { days, todayIdx } = focusThisWeek(state);
+  const maxDay = Math.max(1, ...days);
+  const best = summary.currentStreaks[0];
+  const dayNames = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+  const weekLabel = days.slice(0, todayIdx + 1).map((m, i) => `${dayNames[i]} ${m}`).join(", ");
 
   return (
-    <div className="space-y-8 animate-in">
-      <header className="flex items-start justify-between gap-4 flex-wrap">
-        <div className="space-y-1">
-          <h1 className="text-4xl font-serif font-bold" style={{ color: "hsl(var(--accent-h) var(--accent-s) 62%)", textShadow: "0 0 40px hsl(var(--accent-h) var(--accent-s) 52% / 0.25)" }}>
-            {greeting}
-          </h1>
-          <p className="text-slate-400 italic">{greetingSub}</p>
+    <div className="flex flex-wrap gap-[18px]">
+      <div className="tile" style={{ flex: "1 1 200px", minHeight: 132, padding: "20px 22px" }}>
+        <div className="flex items-center justify-between">
+          <span className="sub" style={{ fontSize: 13, fontWeight: 600 }}>Rituals</span>
+          <Book className="w-[18px] h-[18px] label" strokeWidth={1.7} aria-hidden="true" />
         </div>
-        <DragonFeature pose={dragonPose} bounce={dragonBounce} familiar={state.familiar} setState={setState} onPet={onPetFamiliar} />
-      </header>
-
-      <Card
-        className="relative overflow-hidden border-amber-500/20"
-        style={{ background: "linear-gradient(135deg, hsl(var(--bg-h) var(--bg-s) 9%), hsl(var(--accent2-h) calc(var(--accent2-s) * 0.5) 11%), hsl(var(--bg-h) var(--bg-s) 9%))" }}
-      >
-        <div
-          className="absolute top-0 left-0 right-0 h-px pointer-events-none"
-          style={{ background: "linear-gradient(90deg, transparent, hsl(var(--accent-h) var(--accent-s) 52% / 0.35), hsl(var(--accent2-h) var(--accent2-s) 60% / 0.2), transparent)" }}
-        />
-        <div className="absolute inset-0 pointer-events-none" style={{ background: "radial-gradient(ellipse at 0% 0%, hsl(var(--accent-h) var(--accent-s) 52% / 0.10) 0%, transparent 55%)" }} />
-        <div className="absolute inset-0 pointer-events-none" style={{ background: "radial-gradient(ellipse at 100% 100%, hsl(var(--accent2-h) var(--accent2-s) 60% / 0.08) 0%, transparent 50%)" }} />
-
-        <CardContent className="pt-6 pb-5 px-6 relative">
-          <div className="flex items-center justify-between mb-5">
-            <div className="flex items-center gap-4">
-              <div className="relative">
-                <div
-                  className="w-14 h-14 rounded-full flex items-center justify-center border border-amber-500/30"
-                  style={{ background: "hsl(var(--accent-h) var(--accent-s) 52% / 0.12)", boxShadow: "0 0 24px hsl(var(--accent-h) var(--accent-s) 52% / 0.25)" }}
-                >
-                  <Trophy className="w-7 h-7 text-amber-400" />
-                </div>
-                <div
-                  className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-amber-400 text-slate-950 text-[10px] font-bold flex items-center justify-center"
-                  style={{ boxShadow: "0 0 10px hsl(var(--accent-h) var(--accent-s) 52% / 0.6)" }}
-                >
-                  {summary.level}
-                </div>
-              </div>
-              <div>
-                <div className="text-xs text-slate-400 uppercase tracking-[0.15em] font-semibold mb-0.5 flex items-center gap-1.5">
-                  <span className="text-amber-400/60 text-[10px]">✦</span>
-                  Level {summary.level} Archmage
-                </div>
-                <div className="text-3xl font-serif font-bold text-amber-400" style={{ textShadow: "0 0 30px hsl(var(--accent-h) var(--accent-s) 52% / 0.35)" }}>
-                  {summary.xp.toLocaleString()} <span className="text-xl text-amber-400/70">XP</span>
-                </div>
-              </div>
-            </div>
-            <div className="text-right">
-              <div className="text-xs text-slate-400">{summary.xpToNextLevel} to next level</div>
-            </div>
-          </div>
-          <div className="relative h-1.5 rounded-full bg-amber-500/10 overflow-hidden">
-            <div
-              className="absolute top-0 left-0 h-full rounded-full"
-              style={{ width: `${xpIntoLevel}%`, background: "linear-gradient(90deg, hsl(var(--accent2-h) var(--accent2-s) 60%), hsl(var(--accent-h) var(--accent-s) 52%))" }}
-            />
-          </div>
-        </CardContent>
-      </Card>
-
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <StatCard icon={<BookOpen className="w-4 h-4" />} label="Rituals" value={`${summary.habitsCompletedToday} / ${summary.totalHabits}`} sub="completed today" accentColor="hsl(var(--accent-h) var(--accent-s) 52%)" />
-        <StatCard icon={<CheckCircle className="w-4 h-4" />} label="Quests" value={String(summary.tasksCompletedToday)} sub={`done · ${summary.pendingTasks} pending`} accentColor="hsl(var(--accent2-h) var(--accent2-s) 66%)" />
-        <StatCard icon={<Brain className="w-4 h-4" />} label="Focus" value={`${summary.totalFocusMinutesToday} min`} sub="channeled today" accentColor="hsl(210 80% 65%)" />
+        <div className="display tnum mt-2.5" style={{ fontSize: 42 }}>{summary.habitsCompletedToday}<span className="muted">/{summary.totalHabits}</span></div>
+        <div className="mt-3.5"><SegBars total={summary.totalHabits} done={summary.habitsCompletedToday} /></div>
       </div>
-
-      {summary.currentStreaks.length > 0 && (
-        <div>
-          <ArcaneDivider className="mb-4 text-slate-500">
-            <Flame className="w-3 h-3 text-amber-400" /> Active Streaks
-          </ArcaneDivider>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {summary.currentStreaks.map((s) => (
-              <Card key={s.habitId} className="border-white/5" style={{ background: "hsl(var(--bg-h) calc(var(--bg-s) * 0.8947) 10%)" }}>
-                <CardContent className="p-4 flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-lg flex items-center justify-center text-lg shrink-0" style={{ background: `${s.color}15`, border: `1px solid ${s.color}25` }}>
-                    🔥
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="font-medium text-sm truncate">{s.habitName}</div>
-                    <div className="text-xs text-slate-400">{s.streak} day streak</div>
-                  </div>
-                  <div className="text-2xl font-serif font-bold text-amber-400 shrink-0" style={{ textShadow: "0 0 12px hsl(var(--accent-h) var(--accent-s) 52% / 0.4)" }}>
-                    {s.streak}
-                  </div>
-                </CardContent>
-              </Card>
+      <div className="tile" style={{ flex: "1 1 200px", minHeight: 132, padding: "20px 22px" }}>
+        <div className="flex items-center justify-between">
+          <span className="sub" style={{ fontSize: 13, fontWeight: 600 }}>Quests done</span>
+          <CheckSquare className="w-[18px] h-[18px] label" strokeWidth={1.7} aria-hidden="true" />
+        </div>
+        <div className="display tnum mt-2.5" style={{ fontSize: 42 }}>{summary.tasksCompletedToday}<span className="muted">/{questsTotal}</span></div>
+        <div className="mt-3.5"><SegBars total={questsTotal} done={summary.tasksCompletedToday} color="accent2" /></div>
+      </div>
+      <div className="tile flex flex-col" style={{ flex: "1 1 200px", minHeight: 132, padding: "20px 22px" }}>
+        <div className="flex items-center justify-between">
+          <span className="sub" style={{ fontSize: 13, fontWeight: 600 }}>Focus this week</span>
+          <Timer className="w-[18px] h-[18px] label" strokeWidth={1.7} aria-hidden="true" />
+        </div>
+        <div className="mt-auto flex items-end justify-between gap-3 pt-2.5">
+          <div className="display tnum" style={{ fontSize: 42 }}>{summary.totalFocusMinutesToday}<span style={{ fontSize: 22, color: "var(--sub)" }}>m today</span></div>
+          <div role="img" aria-label={`Focus minutes this week: ${weekLabel}`} className="flex items-end gap-1" style={{ height: 34 }}>
+            {days.map((m, i) => (
+              <span key={i} style={{
+                width: 6, borderRadius: 3,
+                height: i > todayIdx ? 3 : Math.max(3, Math.round((m / maxDay) * 34)),
+                background: i === todayIdx ? "hsl(var(--ui-accent))" : i > todayIdx ? "rgba(255,255,255,0.1)" : "rgba(255,255,255,0.24)",
+              }} />
             ))}
           </div>
         </div>
-      )}
-
-      <DashboardWidgetGrid state={state} setState={setState} />
+      </div>
+      <div className="tile flex flex-col" style={{ flex: "1 1 200px", minHeight: 132, padding: "20px 22px" }}>
+        <div className="flex items-center justify-between">
+          <span className="sub" style={{ fontSize: 13, fontWeight: 600 }}>Longest streak</span>
+          <FlameMark size={18} />
+        </div>
+        <div className="display tnum mt-2.5" style={{ fontSize: 42 }}>{best?.streak ?? 0}<span style={{ fontSize: 22, color: "var(--sub)" }}> {best?.streak === 1 ? "day" : "days"}</span></div>
+        <div className="mt-auto sub truncate" style={{ fontSize: 13 }}>{best ? best.habitName : "Complete a ritual to start one"}</div>
+      </div>
     </div>
   );
 }
 
-/** Drag-and-drop reorderable widget grid for the dashboard. */
-function DashboardWidgetGrid({ state, setState }: { state: any; setState: any }) {
+/* ============================== Dashboard widgets ============================== */
+
+const WIDGET_REGISTRY: Record<WidgetId, { label: string; icon: any; color: string }> = {
+  habits: { label: "Grimoire", icon: Book, color: "hsl(var(--ui-accent))" },
+  tasks: { label: "Quests", icon: CheckSquare, color: "hsl(var(--ui-accent2))" },
+  focus: { label: "Focus", icon: Timer, color: "#7cc8ff" },
+  vitality: { label: "Vitality", icon: Activity, color: "#4fd1a1" },
+  fast: { label: "Fast", icon: Moon, color: "hsl(var(--ui-accent))" },
+  journal: { label: "Journal", icon: Pencil, color: "#f4c38a" },
+  lofi: { label: "Lofi", icon: Music, color: "hsl(var(--ui-accent2))" },
+};
+
+function DashboardWidgetGrid({ state, setState, onNavigate, onStartFocus }: { state: any; setState: any; onNavigate: NavFn; onStartFocus: StartFocusFn }) {
   const widgets: WidgetId[] = state.dashboardWidgets ?? [];
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
   const [overIndex, setOverIndex] = useState<number | null>(null);
-
+  const add = usePopover();
   const available = (Object.keys(WIDGET_REGISTRY) as WidgetId[]).filter((id) => !widgets.includes(id));
+  const notes = widgetNotes(state);
 
-  const handleAdd = (id: WidgetId) => {
-    setState((s: any) => ({ ...s, dashboardWidgets: [...(s.dashboardWidgets ?? []), id] }));
-  };
-  const handleRemove = (id: WidgetId) => {
-    setState((s: any) => ({ ...s, dashboardWidgets: (s.dashboardWidgets ?? []).filter((w: WidgetId) => w !== id) }));
-  };
-  const handleDragStart = (index: number) => setDraggedIndex(index);
-  const handleDragOver = (index: number) => setOverIndex(index);
-  const handleDrop = () => {
-    if (draggedIndex === null || overIndex === null || draggedIndex === overIndex) {
-      setDraggedIndex(null); setOverIndex(null); return;
-    }
+  const handleAdd = (id: WidgetId) => setState((s: any) => ({ ...s, dashboardWidgets: [...(s.dashboardWidgets ?? []), id] }));
+  const handleRemove = (id: WidgetId) => setState((s: any) => ({ ...s, dashboardWidgets: (s.dashboardWidgets ?? []).filter((w: WidgetId) => w !== id) }));
+  const move = (from: number, to: number) => {
+    if (from === to || to < 0 || to >= widgets.length) return;
     setState((s: any) => {
       const list = [...(s.dashboardWidgets ?? [])];
-      const [moved] = list.splice(draggedIndex, 1);
-      list.splice(overIndex, 0, moved);
+      const [moved] = list.splice(from, 1);
+      list.splice(to, 0, moved);
       return { ...s, dashboardWidgets: list };
     });
-    setDraggedIndex(null);
-    setOverIndex(null);
   };
-  const handleDragEnd = () => { setDraggedIndex(null); setOverIndex(null); };
+  const handleDrop = () => {
+    if (draggedIndex !== null && overIndex !== null) move(draggedIndex, overIndex);
+    setDraggedIndex(null); setOverIndex(null);
+  };
 
   return (
-    <div>
-      <ArcaneDivider className="mb-4 text-slate-500">
-        <span className="text-amber-400/50 text-[8px]">✦</span> Your Widgets
-      </ArcaneDivider>
+    <>
+      <SectionHead id="widgets-heading" action={
+        <div className="relative" ref={add.ref}>
+          <Btn variant="glass" icon={<Plus className="w-[15px] h-[15px]" />} aria-expanded={add.open} disabled={available.length === 0}
+            title={available.length === 0 ? "All widgets are on your dashboard" : undefined} onClick={() => add.setOpen(!add.open)}>Add widget</Btn>
+          {add.open && available.length > 0 && (
+            <div className="popover absolute right-0 z-40 mt-2 p-1.5 grid grid-cols-1 gap-0.5" style={{ width: 220 }}>
+              {available.map((id) => {
+                const meta = WIDGET_REGISTRY[id];
+                const Icon = meta.icon;
+                return (
+                  <button key={id} type="button" onClick={() => { handleAdd(id); add.setOpen(false); }}
+                    className="flex items-center gap-2.5 rounded-xl px-3 text-left hover:bg-white/5" style={{ minHeight: 44, fontSize: 14, color: "var(--text-2)" }}>
+                    <Icon className="w-4 h-4" strokeWidth={1.8} style={{ color: meta.color }} /> {meta.label}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      }>Widgets</SectionHead>
 
       {widgets.length === 0 ? (
-        <Card className="border-dashed border-white/10 bg-transparent mb-3">
-          <CardContent className="p-6 text-center text-sm text-slate-400 italic">
-            No widgets yet — add one below to bring parts of Sanctum onto your dashboard.
-          </CardContent>
-        </Card>
+        <EmptyState>No widgets yet. Use Add widget to bring parts of Sanctum onto your dashboard.</EmptyState>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-3">
+        <div className="flex flex-wrap gap-[18px]" aria-labelledby="widgets-heading">
           {widgets.map((id, index) => (
-            <WidgetShell
-              key={id}
-              id={id}
-              index={index}
-              draggedIndex={draggedIndex}
-              onDragStart={handleDragStart}
-              onDragOver={handleDragOver}
-              onDrop={handleDrop}
-              onDragEnd={handleDragEnd}
-              onRemove={() => handleRemove(id)}
-            >
-              <WidgetBody id={id} state={state} setState={setState} />
-            </WidgetShell>
+            <WidgetPanel key={id} id={id} index={index} count={widgets.length} note={notes[id]}
+              dragging={draggedIndex === index} dropTarget={overIndex === index && draggedIndex !== null && draggedIndex !== index}
+              onDragStart={() => setDraggedIndex(index)} onDragOver={() => setOverIndex(index)} onDrop={handleDrop}
+              onDragEnd={() => { setDraggedIndex(null); setOverIndex(null); }}
+              onMove={(dir) => move(index, index + dir)} onRemove={() => handleRemove(id)}>
+              <WidgetBody id={id} state={state} setState={setState} onNavigate={onNavigate} onStartFocus={onStartFocus} />
+            </WidgetPanel>
           ))}
         </div>
       )}
-
-      <AddWidgetMenu available={available} onAdd={handleAdd} />
-    </div>
+    </>
   );
 }
 
-function StatCard({ icon, label, value, sub, accentColor }: any) {
-  return (
-    <Card className="relative overflow-hidden border-white/5" style={{ background: "hsl(var(--bg-h) calc(var(--bg-s) * 0.8947) 10%)" }}>
-      <div className="absolute top-0 left-0 right-0 h-px pointer-events-none" style={{ background: `linear-gradient(90deg, transparent, ${withAlpha(accentColor, 0.19)}, transparent)` }} />
-      <CardContent className="p-5">
-        <div className="flex items-center gap-2 text-sm font-medium mb-3" style={{ color: accentColor }}>
-          {icon} {label}
-        </div>
-        <div className="text-2xl font-serif font-bold" style={{ color: accentColor, textShadow: `0 0 20px ${withAlpha(accentColor, 0.25)}` }}>
-          {value}
-        </div>
-        <p className="text-xs text-slate-400 mt-1">{sub}</p>
-      </CardContent>
-    </Card>
-  );
-}
-
-/* ============================== Dashboard Widgets ============================== */
-
-const WIDGET_REGISTRY: Record<WidgetId, { label: string; icon: any; color: string }> = {
-  habits: { label: "Grimoire", icon: Book, color: "hsl(var(--accent-h) var(--accent-s) 58%)" },
-  tasks: { label: "Quests", icon: CheckSquare, color: "hsl(var(--accent2-h) var(--accent2-s) 72%)" },
-  focus: { label: "Focus", icon: Timer, color: "hsl(210 80% 72%)" },
-  vitality: { label: "Vitality", icon: Activity, color: "hsl(142 60% 60%)" },
-  fast: { label: "Fast", icon: Flame, color: "hsl(var(--accent-h) calc(var(--accent-s) * 0.7955) 60%)" },
-  journal: { label: "Journal", icon: NotebookPen, color: "hsl(var(--accent-h) calc(var(--accent-s) * 0.7955) 70%)" },
-  lofi: { label: "Lofi", icon: Music, color: "hsl(var(--accent2-h) var(--accent2-s) 72%)" },
-};
-
-/** Chrome wrapper: drag handle, label, remove button, drag/drop event plumbing. */
-function WidgetShell({
-  id, index, draggedIndex, onDragStart, onDragOver, onDrop, onDragEnd, onRemove, children,
-}: {
-  id: WidgetId; index: number; draggedIndex: number | null;
-  onDragStart: (i: number) => void; onDragOver: (i: number) => void; onDrop: () => void; onDragEnd: () => void;
-  onRemove: () => void; children: ReactNode;
+/** A widget's glass panel: header, drag handle, move and remove controls. */
+function WidgetPanel({ id, index, count, note, dragging, dropTarget, onDragStart, onDragOver, onDrop, onDragEnd, onMove, onRemove, children }: {
+  id: WidgetId; index: number; count: number; note?: string; dragging: boolean; dropTarget: boolean;
+  onDragStart: () => void; onDragOver: () => void; onDrop: () => void; onDragEnd: () => void;
+  onMove: (dir: -1 | 1) => void; onRemove: () => void; children: ReactNode;
 }) {
   const meta = WIDGET_REGISTRY[id];
   const Icon = meta.icon;
-  const isDragging = draggedIndex === index;
+  const panelRef = useRef<HTMLElement>(null);
   return (
-    <div
-      draggable
-      onDragStart={() => onDragStart(index)}
-      onDragOver={(e) => { e.preventDefault(); onDragOver(index); }}
-      onDrop={(e) => { e.preventDefault(); onDrop(); }}
-      onDragEnd={onDragEnd}
-      className={cn("transition-opacity flex flex-col", isDragging && "opacity-40")}
-      style={{ height: "220px" }}
-    >
-      {/* Header row */}
-      <div className="flex items-center justify-between mb-2 px-1 shrink-0">
-        <div className="flex items-center gap-1.5 text-xs uppercase tracking-[0.12em] font-semibold" style={{ color: meta.color }}>
-          <span className="cursor-grab active:cursor-grabbing text-slate-600 hover:text-slate-400 -ml-1 mr-0.5" title="Drag to reorder">
-            <svg width="10" height="14" viewBox="0 0 10 14" fill="currentColor"><circle cx="2" cy="2" r="1.3" /><circle cx="8" cy="2" r="1.3" /><circle cx="2" cy="7" r="1.3" /><circle cx="8" cy="7" r="1.3" /><circle cx="2" cy="12" r="1.3" /><circle cx="8" cy="12" r="1.3" /></svg>
+    <section ref={panelRef} aria-label={meta.label}
+      onDragOver={(e) => { e.preventDefault(); onDragOver(); }} onDrop={(e) => { e.preventDefault(); onDrop(); }}
+      className="glass widget flex flex-col"
+      style={{ flex: "1 1 380px", height: 288, padding: "22px 24px", opacity: dragging ? 0.4 : 1, outline: dropTarget ? "2px dashed hsl(var(--ui-accent) / 0.6)" : undefined, outlineOffset: 4 }}>
+      <div className="widget-head relative flex items-center gap-2.5 mb-2.5">
+        <span aria-hidden="true" className="icon-tile"><Icon className="w-4 h-4" strokeWidth={1.8} style={{ color: meta.color }} /></span>
+        <h3 className="m-0 truncate" style={{ fontSize: 16, fontWeight: 700, color: "#f0f1f8" }}>{meta.label}</h3>
+        <span className="widget-note ml-auto sub shrink-0 truncate" style={{ fontSize: 13 }}>{note}</span>
+        <div className="widget-tools absolute flex items-center gap-1" style={{ right: -8, top: "50%", transform: "translateY(-50%)" }}>
+          <span draggable title="Drag to move" aria-hidden="true"
+            onDragStart={(e) => { if (panelRef.current) e.dataTransfer.setDragImage(panelRef.current, 24, 24); e.dataTransfer.effectAllowed = "move"; onDragStart(); }}
+            onDragEnd={onDragEnd}
+            className="flex items-center justify-center rounded-lg hover:bg-white/5" style={{ width: 32, height: 32, cursor: "grab", color: "var(--label)" }}>
+            <GripVertical className="w-4 h-4" />
           </span>
-          <Icon className="w-3.5 h-3.5" /> {meta.label}
+          <button type="button" className="sr-only focus:not-sr-only btn btn-glass btn-sm" onClick={() => onMove(-1)} disabled={index === 0}>Move earlier</button>
+          <button type="button" className="sr-only focus:not-sr-only btn btn-glass btn-sm" onClick={() => onMove(1)} disabled={index === count - 1}>Move later</button>
+          <button type="button" onClick={onRemove} aria-label={`Remove ${meta.label} widget`} title="Remove widget"
+            className="flex items-center justify-center rounded-lg hover:bg-white/5" style={{ width: 32, height: 32, color: "var(--label)" }}>
+            <X className="w-4 h-4" />
+          </button>
         </div>
-        <button onClick={onRemove} className="text-slate-600 hover:text-red-400 transition-colors p-1 rounded" title="Remove widget">
-          <X className="w-3.5 h-3.5" />
-        </button>
       </div>
-      {/* Body: fills remaining height, clips overflow */}
-      <div className="flex-1 min-h-0 overflow-hidden rounded-xl">
-        {children}
-      </div>
-    </div>
+      <div className="flex-1 min-h-0 flex flex-col">{children}</div>
+    </section>
   );
 }
 
-/** Picker for adding a new widget to the dashboard. */
-function AddWidgetMenu({ available, onAdd }: { available: WidgetId[]; onAdd: (id: WidgetId) => void }) {
-  const [open, setOpen] = useState(false);
-  if (available.length === 0) {
-    return (
-      <p className="text-xs text-slate-500 italic text-center py-2">All widgets are already on your dashboard.</p>
-    );
-  }
-  return (
-    <div className="relative">
-      <Button variant="outline" size="sm" className="border-dashed border-white/15 text-slate-400 hover:text-amber-400 hover:border-amber-500/30 w-full" onClick={() => setOpen((v) => !v)}>
-        <Plus className="w-3.5 h-3.5 mr-1.5" /> Add Widget
-      </Button>
-      {open && (
-        <div className="absolute z-20 mt-1.5 w-full rounded-lg border p-1.5 grid gap-1" style={{ background: "hsl(var(--bg-h) calc(var(--bg-s) * 0.9474) 10%)", borderColor: "hsl(var(--bg-h) calc(var(--bg-s) * 0.6579) 18%)", boxShadow: "0 8px 24px rgba(0,0,0,0.4)" }}>
-          {available.map((id) => {
-            const meta = WIDGET_REGISTRY[id];
-            const Icon = meta.icon;
-            return (
-              <button key={id} onClick={() => { onAdd(id); setOpen(false); }}
-                className="flex items-center gap-2 px-2.5 py-2 rounded-md text-sm text-slate-300 hover:bg-white/5 transition-colors text-left">
-                <Icon className="w-4 h-4" style={{ color: meta.color }} /> {meta.label}
-              </button>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-}
-
-/* -- Compact widget bodies, each a stripped-down view of its full page -- */
-
-function HabitsWidget({ state, setState }: { state: any; setState: any }) {
-  const today = todayStr();
-  const completedToday = new Set(state.habitCompletions.filter((c: HabitCompletion) => c.date === today).map((c: HabitCompletion) => c.habitId));
-  const handleToggle = (id: number, done: boolean) => {
-    setState((s: any) => ({
-      ...s,
-      habitCompletions: done
-        ? s.habitCompletions.filter((c: HabitCompletion) => !(c.habitId === id && c.date === today))
-        : [...s.habitCompletions, { habitId: id, date: today }],
-    }));
-  };
-  if (state.habits.length === 0) return <EmptyWidgetNote text="No rituals yet — add some in the Grimoire." />;
-  return (
-    <Card className="border-white/5 h-full" style={{ background: "hsl(var(--bg-h) calc(var(--bg-s) * 0.8947) 10%)" }}>
-      <CardContent className="p-3 space-y-1.5 overflow-y-auto h-full">
-        {state.habits.slice(0, 8).map((h: Habit) => {
-          const done = completedToday.has(h.id);
-          return (
-            <button key={h.id} onClick={() => handleToggle(h.id, done)}
-              className="w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-white/5 transition-colors text-left">
-              <div className={cn("w-4 h-4 rounded border-2 flex items-center justify-center shrink-0", done ? "border-amber-400 bg-amber-400/80" : "border-amber-500/30")}>
-                {done && <Check className="w-2.5 h-2.5 text-slate-950" />}
-              </div>
-              <span className={cn("text-sm flex-1 truncate", done && "line-through text-slate-500")}>{h.name}</span>
-            </button>
-          );
-        })}
-      </CardContent>
-    </Card>
-  );
-}
-
-function TasksWidget({ state, setState }: { state: any; setState: any }) {
-  const todo = state.tasks.filter((t: Task) => t.status !== "done").slice(0, 6);
-  const toggle = (id: number) => {
-    setState((s: any) => ({ ...s, tasks: s.tasks.map((t: Task) => (t.id === id ? { ...t, status: "done", completedAt: new Date().toISOString() } : t)) }));
-  };
-  if (todo.length === 0) return <EmptyWidgetNote text="No active quests — the realm is at peace." />;
-  return (
-    <Card className="border-white/5 h-full" style={{ background: "hsl(var(--bg-h) calc(var(--bg-s) * 0.8947) 10%)" }}>
-      <CardContent className="p-3 space-y-1.5 overflow-y-auto h-full">
-        {todo.map((t: Task) => {
-          const ps = priorityStyle[t.priority as Priority] ?? priorityStyle.medium;
-          return (
-            <button key={t.id} onClick={() => toggle(t.id)} className="w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-white/5 transition-colors text-left">
-              <div className="w-4 h-4 rounded border-2 border-violet-400/30 shrink-0" />
-              <span className="text-sm flex-1 truncate">{t.title}</span>
-              <span className="text-[10px] px-1.5 py-0.5 rounded-full shrink-0 capitalize" style={{ color: ps.color, background: ps.bg }}>{t.priority}</span>
-            </button>
-          );
-        })}
-      </CardContent>
-    </Card>
-  );
-}
-
-function FocusWidget({ state }: { state: any }) {
-  const todayMin = state.focusSessions
-    .filter((s: FocusSession) => new Date(s.startedAt).toDateString() === new Date().toDateString())
-    .reduce((sum: number, s: FocusSession) => sum + s.durationMinutes, 0);
-  const recent = state.focusSessions.slice(0, 3);
-  return (
-    <Card className="border-white/5 h-full" style={{ background: "hsl(var(--bg-h) calc(var(--bg-s) * 0.8947) 10%)" }}>
-      <CardContent className="p-4 space-y-3 h-full overflow-y-auto">
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="text-2xl font-serif font-bold text-sky-300">{todayMin} min</div>
-            <div className="text-xs text-slate-400">channeled today</div>
-          </div>
-          <Brain className="w-7 h-7 text-sky-400/40" />
-        </div>
-        {recent.length > 0 && (
-          <div className="space-y-1 pt-1 border-t border-white/5">
-            {recent.map((s: FocusSession) => (
-              <div key={s.id} className="flex items-center justify-between text-xs text-slate-400">
-                <span className="truncate italic">{s.label}</span>
-                <span className="shrink-0 text-sky-300 font-medium">{s.durationMinutes}m</span>
-              </div>
-            ))}
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
-function VitalityWidget({ state }: { state: any }) {
-  const today = todayStr();
-  const todayLogs = state.healthLogs.filter((l: HealthLog) => l.loggedAt.split("T")[0] === today);
-  const latestByType: Record<string, number> = {};
-  for (const log of todayLogs) latestByType[log.type] = log.value;
-  return (
-    <Card className="border-white/5 h-full" style={{ background: "hsl(var(--bg-h) calc(var(--bg-s) * 0.8947) 10%)" }}>
-      <CardContent className="p-3 h-full flex flex-col justify-center">
-        <div className="grid grid-cols-5 gap-1.5">
-        {METRICS.map((m) => {
-          const Icon = m.icon;
-          const val = latestByType[m.key];
-          return (
-            <div key={m.key} className="flex flex-col items-center text-center py-1">
-              <Icon className="w-3.5 h-3.5 mb-1" style={{ color: m.color }} />
-              <span className="text-xs font-semibold" style={{ color: val !== undefined ? m.color : "#475569" }}>
-                {val !== undefined ? formatValue(m.key, val) : "—"}
-              </span>
-            </div>
-          );
-        })}
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-function FastWidget({ state }: { state: any }) {
-  const current = state.fastSessions.find((f: FastSession) => f.status === "active");
-  const [now, setNow] = useState(Date.now());
-  useEffect(() => {
-    if (!current) return;
-    const t = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(t);
-  }, [current]);
-
-  if (!current) return <EmptyWidgetNote text="No active fast. Start one from the Fast page." />;
-
-  const elapsed = now - new Date(current.startedAt).getTime();
-  const targetMs = current.targetHours * 3_600_000;
-  const pct = Math.min(1, elapsed / targetMs);
-  return (
-    <Card className="border-white/5 h-full" style={{ background: "hsl(var(--bg-h) calc(var(--bg-s) * 0.8947) 10%)" }}>
-      <CardContent className="p-4 h-full flex items-center gap-4">
-        <CircleProgress pct={pct} size={56} strokeWidth={6} color="hsl(var(--accent-h) var(--accent-s) 50%)" />
-        <div>
-          <div className="text-sm font-semibold">{current.protocol} fast</div>
-          <div className="text-xs text-slate-400">{formatHours(elapsed)}h of {current.targetHours}h</div>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-function JournalWidget({ state, setState }: { state: any; setState: any }) {
-  const today = todayStr();
-  const entry: JournalEntry | undefined = state.journalEntries.find((e: JournalEntry) => e.date === today);
-  const [text, setText] = useState(entry?.text ?? "");
-  const timeout = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const persist = (val: string) => {
-    setState((s: any) => {
-      const existing = s.journalEntries.find((e: JournalEntry) => e.date === today);
-      const updated: JournalEntry = { id: existing?.id ?? nextId(), date: today, text: val, mood: existing?.mood ?? null, updatedAt: new Date().toISOString() };
-      const journalEntries = existing ? s.journalEntries.map((e: JournalEntry) => (e.date === today ? updated : e)) : [...s.journalEntries, updated];
-      return { ...s, journalEntries };
-    });
-  };
-  const handleChange = (val: string) => {
-    setText(val);
-    if (timeout.current) clearTimeout(timeout.current);
-    timeout.current = setTimeout(() => persist(val), 900);
-  };
-
-  return (
-    <Card className="border-white/5 h-full" style={{ background: "hsl(var(--bg-h) calc(var(--bg-s) * 0.8947) 10%)" }}>
-      <CardContent className="p-3 h-full flex flex-col">
-        <textarea
-          value={text}
-          onChange={(e) => handleChange(e.target.value)}
-          placeholder="Quick thought for today..."
-          className="flex-1 w-full rounded-md border bg-transparent px-2.5 py-2 text-sm outline-none resize-none placeholder:text-slate-500"
-          style={{ borderColor: "hsl(var(--bg-h) calc(var(--bg-s) * 0.6579) 18%)", color: "inherit" }}
-        />
-      </CardContent>
-    </Card>
-  );
-}
-
-function EmptyWidgetNote({ text }: { text: string }) {
-  return (
-    <Card className="border-dashed border-white/10 bg-transparent h-full">
-      <CardContent className="h-full flex items-center justify-center p-4 text-center text-xs text-slate-500 italic">{text}</CardContent>
-    </Card>
-  );
-}
-
-function WidgetBody({ id, state, setState }: { id: WidgetId; state: any; setState: any }) {
+function WidgetBody({ id, state, setState, onNavigate, onStartFocus }: { id: WidgetId; state: any; setState: any; onNavigate: NavFn; onStartFocus: StartFocusFn }) {
   switch (id) {
-    case "habits": return <HabitsWidget state={state} setState={setState} />;
+    case "habits": return <HabitsWidget state={state} setState={setState} onNavigate={onNavigate} />;
     case "tasks": return <TasksWidget state={state} setState={setState} />;
-    case "focus": return <FocusWidget state={state} />;
-    case "vitality": return <VitalityWidget state={state} />;
-    case "fast": return <FastWidget state={state} />;
+    case "focus": return <FocusWidget onStartFocus={onStartFocus} />;
+    case "vitality": return <VitalityWidget state={state} onNavigate={onNavigate} />;
+    case "fast": return <FastWidget state={state} onNavigate={onNavigate} />;
     case "journal": return <JournalWidget state={state} setState={setState} />;
     case "lofi": return <LofiPlayer compact />;
     default: return null;
   }
 }
 
-/* ============================== Habits Page (Grimoire) ============================== */
+/** Notes shown in each widget header ("2 of 3 today", "2 open", …). */
+function widgetNotes(state: any): Partial<Record<WidgetId, string>> {
+  const today = todayStr();
+  const done = new Set(state.habitCompletions.filter((c: HabitCompletion) => c.date === today).map((c: HabitCompletion) => c.habitId));
+  const open = state.tasks.filter((t: Task) => t.status !== "done").length;
+  const fast = state.fastSessions.find((f: FastSession) => f.status === "active");
+  return {
+    habits: state.habits.length ? `${done.size} of ${state.habits.length} today` : undefined,
+    tasks: `${open} open`,
+    focus: "Deep work",
+    vitality: "Today",
+    fast: fast ? `${fast.protocol} · ${fast.targetHours}h` : "Not fasting",
+    journal: "Saves as you type",
+    lofi: "Live",
+  };
+}
+
+function HabitsWidget({ state, setState, onNavigate }: { state: any; setState: any; onNavigate: NavFn }) {
+  const today = todayStr();
+  const doneToday = new Set(state.habitCompletions.filter((c: HabitCompletion) => c.date === today).map((c: HabitCompletion) => c.habitId));
+  const streaks = habitStreaks(state);
+  const toggle = (id: number, done: boolean) => setState((s: any) => ({
+    ...s,
+    habitCompletions: done
+      ? s.habitCompletions.filter((c: HabitCompletion) => !(c.habitId === id && c.date === today))
+      : [...s.habitCompletions, { habitId: id, date: today }],
+  }));
+  if (state.habits.length === 0) {
+    return <EmptyState action={<Btn size="sm" onClick={() => onNavigate("habits")}>Open the Grimoire</Btn>}>No rituals yet.</EmptyState>;
+  }
+  return (
+    <div className="scroll-y -mx-1 px-1 flex-1">
+      {state.habits.map((h: Habit, i: number) => {
+        const done = doneToday.has(h.id);
+        return (
+          <button key={h.id} type="button" aria-pressed={done} onClick={() => toggle(h.id, done)}
+            className={cx("row-btn", i < state.habits.length - 1 && "divider")} style={{ color: done ? "var(--sub)" : "var(--text)", fontWeight: done ? 400 : 500 }}>
+            <span aria-hidden="true" className={cx("check", done && "is-on")}>{done && <Check className="w-3.5 h-3.5" strokeWidth={3.2} />}</span>
+            <span className="truncate" style={{ textDecoration: done ? "line-through" : undefined }}>{h.name}</span>
+            <span className="chip chip-round ml-auto" aria-label={`${streaks[h.id] ?? 0} day streak`}><FlameMark size={12} />{streaks[h.id] ?? 0}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+const PRIORITY_LOOK: Record<string, { bar: string; bg: string; text: string; label: string }> = {
+  high: { bar: "#ff8a7a", bg: "rgba(255,138,122,0.12)", text: "#ffb3a8", label: "High" },
+  medium: { bar: "#f2c46b", bg: "rgba(242,196,107,0.12)", text: "#f6d697", label: "Medium" },
+  low: { bar: "#7cc8ff", bg: "rgba(124,200,255,0.12)", text: "#b3e0ff", label: "Low" },
+};
+const PRIORITY_ORDER: Record<string, number> = { high: 0, medium: 1, low: 2 };
+
+function TasksWidget({ state, setState }: { state: any; setState: any }) {
+  const [draft, setDraft] = useState("");
+  const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+  const open = state.tasks.filter((t: Task) => t.status !== "done").sort((a: Task, b: Task) => PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority]);
+  const doneToday = state.tasks.filter((t: Task) => t.status === "done" && t.completedAt && new Date(t.completedAt) >= todayStart);
+  const rows = [...open, ...doneToday];
+  const toggle = (id: number) => setState((s: any) => ({
+    ...s,
+    tasks: s.tasks.map((t: Task) => t.id !== id ? t : t.status === "done"
+      ? { ...t, status: "todo", completedAt: undefined }
+      : { ...t, status: "done", completedAt: new Date().toISOString() }),
+  }));
+  const add = () => {
+    const title = draft.trim();
+    if (!title) return;
+    setState((s: any) => ({ ...s, tasks: [...s.tasks, { id: nextId(), title, status: "todo", priority: "medium" } as Task] }));
+    setDraft("");
+  };
+  return (
+    <>
+      <div className="scroll-y -mx-1 px-1 flex-1 min-h-0">
+        {rows.length === 0 && <p className="sub m-0 py-4 text-center" style={{ fontSize: 14 }}>No quests yet. The realm is at peace.</p>}
+        {rows.map((t: Task, i: number) => {
+          const isDone = t.status === "done";
+          const look = PRIORITY_LOOK[t.priority] ?? PRIORITY_LOOK.medium;
+          return (
+            <button key={t.id} type="button" aria-pressed={isDone} onClick={() => toggle(t.id)}
+              title={isDone ? "Mark as not done" : "Mark as done"}
+              className={cx("row-btn", i < rows.length - 1 && "divider")} style={{ minHeight: 52, gap: 12 }}>
+              <span aria-hidden="true" style={{ width: 4, height: 26, borderRadius: 4, flexShrink: 0, background: isDone ? "rgba(255,255,255,0.18)" : look.bar }} />
+              <span className="flex-1 min-w-0 truncate" style={{ fontSize: 15, fontWeight: isDone ? 400 : 500, color: isDone ? "var(--label)" : "#f0f1f8", textDecoration: isDone ? "line-through" : undefined }}>{t.title}</span>
+              {isDone
+                ? <span className="chip" style={{ borderColor: "transparent", color: "var(--sub)" }}>Done</span>
+                : <span className="chip" style={{ borderColor: "transparent", background: look.bg, color: look.text }}>{look.label}{t.category ? ` · ${t.category}` : ""}</span>}
+            </button>
+          );
+        })}
+      </div>
+      <div className="well mt-2.5 flex items-center gap-2" style={{ padding: "0 6px 0 14px", borderRadius: 13 }}>
+        <label htmlFor="widget-quick-quest" className="sr-only-x">Add a quest</label>
+        <Plus className="w-[15px] h-[15px] shrink-0 label" aria-hidden="true" />
+        <input id="widget-quick-quest" className="flex-1 min-w-0 bg-transparent outline-none" style={{ minHeight: 44, fontSize: 14, color: "#f0f1f8", border: 0 }}
+          placeholder="Add a quest…" value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => e.key === "Enter" && add()} />
+        <span aria-hidden="true" style={{ padding: "3px 7px", borderRadius: 6, border: "1px solid rgba(255,255,255,0.12)", fontSize: 11, fontWeight: 600, color: "var(--sub)" }}>Enter</span>
+      </div>
+    </>
+  );
+}
+
+const WIDGET_FOCUS_PRESETS = [15, 25, 45, 60];
+
+function FocusWidget({ onStartFocus }: { onStartFocus: StartFocusFn }) {
+  const [minutes, setMinutes] = useState(25);
+  return (
+    <>
+      <div className="flex-1 flex items-center justify-center">
+        <div className="display tnum" style={{ fontSize: "clamp(64px, 9vw, 96px)", letterSpacing: "-0.02em" }}>{String(minutes).padStart(2, "0")}:00</div>
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        {WIDGET_FOCUS_PRESETS.map((m) => (
+          <button key={m} type="button" className="seg" aria-pressed={minutes === m} aria-label={`${m} minutes`} onClick={() => setMinutes(m)}>{m}</button>
+        ))}
+        <Btn variant="primary" className="ml-auto" style={{ padding: "0 22px" }} icon={<Play className="w-3.5 h-3.5" fill="currentColor" />} onClick={() => onStartFocus(minutes)}>Begin</Btn>
+      </div>
+    </>
+  );
+}
+
+function VitalityWidget({ state, onNavigate }: { state: any; onNavigate: NavFn }) {
+  const today = todayStr();
+  const latest: Record<string, number> = {};
+  for (const log of state.healthLogs as HealthLog[]) if (log.loggedAt.split("T")[0] === today) latest[log.type] = log.value;
+  return (
+    <div className="flex-1 grid grid-cols-5 gap-2 content-center">
+      {METRICS.map((m) => {
+        const Icon = m.icon;
+        const val = latest[m.key];
+        return (
+          <button key={m.key} type="button" onClick={() => onNavigate("health")} title={`Log ${m.label.toLowerCase()} on the Vitality page`}
+            className="well flex flex-col items-center justify-center gap-1.5 px-1 hover:bg-white/5 transition-colors" style={{ borderRadius: 16, height: 150 }}>
+            <Icon className="w-[18px] h-[18px]" strokeWidth={1.7} style={{ color: m.color }} aria-hidden="true" />
+            <span className="display tnum" style={{ fontSize: 28 }}>{val !== undefined ? formatValue(m.key, val) : "–"}</span>
+            <span className="label" style={{ fontSize: 11, fontWeight: 600 }}>{m.label}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function FastWidget({ state, onNavigate }: { state: any; onNavigate: NavFn }) {
+  const current = state.fastSessions.find((f: FastSession) => f.status === "active");
+  const now = useNow(1000, !!current);
+  if (!current) {
+    return <EmptyState icon={<Moon className="w-6 h-6" strokeWidth={1.6} />} action={<Btn size="sm" onClick={() => onNavigate("fast")}>Start a fast</Btn>}>No fast running.</EmptyState>;
+  }
+  const elapsed = now - new Date(current.startedAt).getTime();
+  const pct = elapsed / (current.targetHours * 3_600_000);
+  return (
+    <div className="flex-1 flex items-center gap-6">
+      <Ring pct={pct} size={150} stroke={10} dotted={false} color={pct >= 1 ? "#4fd1a1" : "hsl(var(--ui-accent))"}>
+        <div className="display tnum" style={{ fontSize: 34 }}>{formatHours(elapsed)}h</div>
+        <div className="sub" style={{ fontSize: 12, fontWeight: 600 }}>{Math.min(100, Math.round(pct * 100))}%</div>
+      </Ring>
+      <div className="min-w-0">
+        <div style={{ fontSize: 16, fontWeight: 700 }}>{pct >= 1 ? "Goal reached" : "Fasting"}</div>
+        <div className="sub mt-1" style={{ fontSize: 14 }}>{formatHours(Math.max(0, current.targetHours * 3_600_000 - elapsed))}h to go of {current.targetHours}h</div>
+        <Btn size="sm" className="mt-3" onClick={() => onNavigate("fast")}>Open Fast</Btn>
+      </div>
+    </div>
+  );
+}
+
+/** Saves today's journal entry (and mirrors the mood into Vitality, like the Journal page). */
+function useTodayJournal(state: any, setState: any) {
+  const today = todayStr();
+  const entry: JournalEntry | undefined = state.journalEntries.find((e: JournalEntry) => e.date === today);
+  const save = useCallback((text: string, mood: number | null, moodChanged: boolean) => {
+    setState((s: any) => {
+      const existing = s.journalEntries.find((e: JournalEntry) => e.date === today);
+      const next: JournalEntry = { id: existing?.id ?? nextId(), date: today, text, mood, updatedAt: new Date().toISOString() };
+      const journalEntries = existing ? s.journalEntries.map((e: JournalEntry) => (e.date === today ? next : e)) : [...s.journalEntries, next];
+      const healthLogs = moodChanged && mood !== null
+        ? [...s.healthLogs, { id: nextId(), type: "mood", value: mood, unit: "mood", loggedAt: new Date().toISOString() } as HealthLog]
+        : s.healthLogs;
+      return { ...s, journalEntries, healthLogs };
+    });
+  }, [setState, today]);
+  return { today, entry, save };
+}
+
+function JournalWidget({ state, setState }: { state: any; setState: any }) {
+  const { entry, save } = useTodayJournal(state, setState);
+  const [text, setText] = useState(entry?.text ?? "");
+  const [mood, setMood] = useState<number | null>(entry?.mood ?? null);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const onText = (val: string) => {
+    setText(val);
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => save(val, mood, false), 900);
+  };
+  const onMood = (val: number) => {
+    const next = mood === val ? null : val;
+    setMood(next);
+    save(text, next, true);
+  };
+  return (
+    <div className="flex-1 min-h-0 flex flex-col gap-2.5">
+      <div className="flex items-center gap-1">
+        <span className="sub mr-auto" style={{ fontSize: 13 }}>Mood</span>
+        <MoodPicker value={mood} onChange={onMood} />
+      </div>
+      <label htmlFor="widget-journal" className="sr-only-x">Today's journal entry</label>
+      <textarea id="widget-journal" className="field flex-1 min-h-0" placeholder={`What's on your mind ${new Date().getHours() >= 17 ? "tonight" : "today"}?`}
+        value={text} onChange={(e) => onText(e.target.value)} />
+    </div>
+  );
+}
+
+/* ============================== Grimoire (rituals) ============================== */
 
 const ICON_MAP: Record<string, any> = {
   brain: Brain, droplets: Droplets, "book-open": BookOpen, dumbbell: Dumbbell,
@@ -1550,12 +1577,13 @@ const ICON_MAP: Record<string, any> = {
   coffee: Coffee, music: Music, leaf: Leaf,
 };
 function HabitIcon({ icon, color }: { icon?: string; color?: string }) {
-  const bg = color || "#f59e0b";
-  const LucideIcon = icon ? ICON_MAP[icon] : null;
+  const c = color || "#f59e0b";
+  const LucideIcon = (icon && ICON_MAP[icon]) || Star;
   return (
-    <div className="w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ background: `${bg}18`, border: `1px solid ${bg}28`, boxShadow: `0 0 12px ${bg}15` }}>
-      {LucideIcon ? <LucideIcon className="w-4 h-4" style={{ color: bg }} /> : <span className="text-xs" style={{ color: bg }}>✦</span>}
-    </div>
+    <span aria-hidden="true" className="flex items-center justify-center shrink-0"
+      style={{ width: 40, height: 40, borderRadius: 12, background: `${c}1f`, border: `1px solid ${c}33` }}>
+      <LucideIcon className="w-[18px] h-[18px]" strokeWidth={1.8} style={{ color: c }} />
+    </span>
   );
 }
 const HABIT_COLORS = ["#c084fc", "#60a5fa", "#f59e0b", "#34d399", "#f472b6", "#fb923c", "#a78bfa"];
@@ -1564,23 +1592,20 @@ const FREQUENCIES = ["daily", "weekly"] as const;
 function HabitsPage({ state, setState }: { state: any; setState: any }) {
   const today = todayStr();
   const completedToday = new Set(state.habitCompletions.filter((c: HabitCompletion) => c.date === today).map((c: HabitCompletion) => c.habitId));
+  const streaks = habitStreaks(state);
+  const best = Math.max(0, ...Object.values(streaks));
 
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ name: "", description: "", frequency: "daily" as "daily" | "weekly", color: HABIT_COLORS[0] });
   const [formError, setFormError] = useState("");
   const [confirmDelete, setConfirmDelete] = useState<number | null>(null);
 
-  const handleComplete = (id: number) => {
-    setState((s: any) => ({ ...s, habitCompletions: [...s.habitCompletions, { habitId: id, date: today }] }));
-  };
-  const handleUndo = (id: number) => {
-    setState((s: any) => ({
-      ...s,
-      habitCompletions: s.habitCompletions.filter((c: HabitCompletion) => !(c.habitId === id && c.date === today)),
-    }));
-  };
+  const handleComplete = (id: number) => setState((s: any) => ({ ...s, habitCompletions: [...s.habitCompletions, { habitId: id, date: today }] }));
+  const handleUndo = (id: number) => setState((s: any) => ({
+    ...s, habitCompletions: s.habitCompletions.filter((c: HabitCompletion) => !(c.habitId === id && c.date === today)),
+  }));
   const handleCreate = () => {
-    if (!form.name.trim()) { setFormError("Name is required."); return; }
+    if (!form.name.trim()) { setFormError("Give the ritual a name."); return; }
     const newHabit: Habit = { id: nextId(), name: form.name.trim(), description: form.description || undefined, frequency: form.frequency, color: form.color, icon: "star" };
     setState((s: any) => ({ ...s, habits: [...s.habits, newHabit] }));
     setShowForm(false);
@@ -1588,133 +1613,124 @@ function HabitsPage({ state, setState }: { state: any; setState: any }) {
     setFormError("");
   };
   const handleDelete = (id: number) => {
-    setState((s: any) => ({
-      ...s,
-      habits: s.habits.filter((h: Habit) => h.id !== id),
-      habitCompletions: s.habitCompletions.filter((c: HabitCompletion) => c.habitId !== id),
-    }));
+    setState((s: any) => ({ ...s, habits: s.habits.filter((h: Habit) => h.id !== id), habitCompletions: s.habitCompletions.filter((c: HabitCompletion) => c.habitId !== id) }));
     setConfirmDelete(null);
   };
 
   return (
-    <div className="space-y-6 animate-in">
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="text-4xl font-serif font-bold" style={{ color: "hsl(var(--accent-h) var(--accent-s) 62%)", textShadow: "0 0 40px hsl(var(--accent-h) var(--accent-s) 52% / 0.2)" }}>Grimoire</h1>
-          <p className="text-slate-400 italic mt-1">Your daily rituals and sacred spells.</p>
+    <div className="flex flex-col gap-[18px] animate-in">
+      <PageHeader eyebrow="Study" title="Grimoire" sub="Your daily rituals and sacred spells."
+        actions={<Btn variant={showForm ? "glass" : "primary"} icon={showForm ? <X className="w-4 h-4" /> : <Plus className="w-4 h-4" />} onClick={() => setShowForm((v) => !v)}>{showForm ? "Cancel" : "New ritual"}</Btn>} />
+
+      <div className="flex flex-wrap gap-[18px]">
+        <div className="tile" style={{ flex: "1 1 200px", padding: "20px 22px" }}>
+          <div className="sub" style={{ fontSize: 13, fontWeight: 600 }}>Today</div>
+          <div className="display tnum mt-2.5" style={{ fontSize: 42 }}>{completedToday.size}<span className="muted">/{state.habits.length}</span></div>
+          <div className="mt-3.5"><SegBars total={state.habits.length} done={completedToday.size} /></div>
         </div>
-        <Button variant="outline" className="border-amber-500/30 text-amber-400 hover:bg-amber-500/10" onClick={() => setShowForm((v: boolean) => !v)}>
-          {showForm ? <X className="w-4 h-4 mr-1.5" /> : <Plus className="w-4 h-4 mr-1.5" />}
-          {showForm ? "Cancel" : "New Ritual"}
-        </Button>
+        <div className="tile" style={{ flex: "1 1 200px", padding: "20px 22px" }}>
+          <div className="flex items-center justify-between"><span className="sub" style={{ fontSize: 13, fontWeight: 600 }}>Longest streak</span><FlameMark size={18} /></div>
+          <div className="display tnum mt-2.5" style={{ fontSize: 42 }}>{best}<span style={{ fontSize: 22, color: "var(--sub)" }}> {best === 1 ? "day" : "days"}</span></div>
+        </div>
+        <div className="tile" style={{ flex: "1 1 200px", padding: "20px 22px" }}>
+          <div className="sub" style={{ fontSize: 13, fontWeight: 600 }}>Rituals kept, all time</div>
+          <div className="display tnum mt-2.5" style={{ fontSize: 42 }}>{state.habitCompletions.length}</div>
+        </div>
       </div>
 
       {showForm && (
-        <Card className="border-amber-500/25 relative overflow-hidden" style={{ background: "linear-gradient(135deg, hsl(var(--bg-h) var(--bg-s) 9%), hsl(var(--accent2-h) calc(var(--accent2-s) * 0.5) 10%))" }}>
-          <div className="absolute top-0 left-0 right-0 h-px" style={{ background: "linear-gradient(90deg, transparent, hsl(var(--accent-h) var(--accent-s) 52% / 0.4), transparent)" }} />
-          <CardContent className="p-5 space-y-4">
-            <h2 className="font-serif text-lg font-semibold flex items-center gap-2">
-              <span className="text-amber-400/60 text-sm">✦</span> Scribe a new ritual
-            </h2>
-            <div className="space-y-3">
-              <Input placeholder="Ritual name *" value={form.name} onChange={(e: any) => { setForm((f: any) => ({ ...f, name: e.target.value })); setFormError(""); }} />
-              <Input placeholder="Description (optional)" value={form.description} onChange={(e: any) => setForm((f: any) => ({ ...f, description: e.target.value }))} />
+        <section aria-label="New ritual" className="glass" style={{ padding: "24px 26px" }}>
+          <PanelHead icon={<Plus className="w-4 h-4" style={{ color: "hsl(var(--ui-accent))" }} />} title="Scribe a new ritual" />
+          <div className="mt-5 grid gap-4 sm:grid-cols-2">
+            <div>
+              <label htmlFor="ritual-name" className="field-label">Name</label>
+              <input id="ritual-name" className="field" autoFocus placeholder="Morning meditation" value={form.name}
+                onChange={(e) => { setForm((f) => ({ ...f, name: e.target.value })); setFormError(""); }} onKeyDown={(e) => e.key === "Enter" && handleCreate()} />
+            </div>
+            <div>
+              <label htmlFor="ritual-desc" className="field-label">Description <span className="label">(optional)</span></label>
+              <input id="ritual-desc" className="field" placeholder="10 minutes of stillness" value={form.description}
+                onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} />
+            </div>
+            <div>
+              <div className="field-label">How often</div>
               <div className="flex gap-2">
                 {FREQUENCIES.map((freq) => (
-                  <button key={freq} onClick={() => setForm((f: any) => ({ ...f, frequency: freq }))}
-                    className={cn("px-3 py-1.5 rounded-lg border text-sm capitalize transition-colors",
-                      form.frequency === freq ? "border-amber-500/50 bg-amber-500/12 text-amber-400 font-semibold" : "border-white/10 text-slate-400 hover:border-amber-500/30")}>
-                    {freq}
-                  </button>
+                  <button key={freq} type="button" className="seg capitalize" aria-pressed={form.frequency === freq} onClick={() => setForm((f) => ({ ...f, frequency: freq }))}>{freq}</button>
                 ))}
               </div>
-              <div className="flex gap-2 flex-wrap items-center">
-                <span className="text-xs text-slate-400">Hue:</span>
-                {HABIT_COLORS.map((color) => (
-                  <button key={color} onClick={() => setForm((f: any) => ({ ...f, color }))}
-                    className={cn("w-6 h-6 rounded-full border-2 transition-transform hover:scale-110", form.color === color ? "border-white scale-110" : "border-transparent")}
-                    style={{ background: color, boxShadow: form.color === color ? `0 0 8px ${color}` : "none" }} />
-                ))}
-              </div>
-              {formError && <p className="text-red-400 text-sm">{formError}</p>}
-              <Button onClick={handleCreate} className="w-full">✦ Add Ritual</Button>
             </div>
-          </CardContent>
-        </Card>
+            <div>
+              <div className="field-label">Colour</div>
+              <div className="flex flex-wrap items-center gap-2" style={{ minHeight: 44 }}>
+                {HABIT_COLORS.map((color) => (
+                  <button key={color} type="button" aria-label={`Colour ${color}`} aria-pressed={form.color === color} onClick={() => setForm((f) => ({ ...f, color }))}
+                    className="rounded-full" style={{ width: 28, height: 28, background: color, border: form.color === color ? "2px solid #fff" : "2px solid transparent", boxShadow: form.color === color ? `0 0 10px ${color}` : "none" }} />
+                ))}
+              </div>
+            </div>
+          </div>
+          {formError && <p className="mt-3 mb-0" style={{ color: "#ffb3a8", fontSize: 14 }} role="alert">{formError}</p>}
+          <div className="mt-5 flex justify-end gap-2.5">
+            <Btn variant="quiet" onClick={() => setShowForm(false)}>Cancel</Btn>
+            <Btn variant="primary" icon={<Plus className="w-4 h-4" />} onClick={handleCreate}>Add ritual</Btn>
+          </div>
+        </section>
       )}
 
       {state.habits.length === 0 ? (
-        <Card className="border-dashed border-white/10 bg-transparent">
-          <CardContent className="flex flex-col items-center justify-center h-48 text-center p-6">
-            <Book className="w-10 h-10 text-amber-400/25 mb-4" />
-            <p className="text-slate-400 mb-4 italic">Your grimoire is empty. Scribe your first ritual.</p>
-            <Button onClick={() => setShowForm(true)}>✦ Add Ritual</Button>
-          </CardContent>
-        </Card>
+        <EmptyState icon={<Book className="w-7 h-7" strokeWidth={1.5} />} action={<Btn variant="primary" icon={<Plus className="w-4 h-4" />} onClick={() => setShowForm(true)}>Add a ritual</Btn>}>
+          Your grimoire is empty. Scribe your first ritual.
+        </EmptyState>
       ) : (
-        <div>
-          <ArcaneDivider className="mb-4 text-slate-500 text-[10px]">
-            <span className="text-amber-400/50 text-[8px]">✦</span> Daily Rituals
-          </ArcaneDivider>
-          <div className="grid gap-2.5">
-            {state.habits.map((habit: Habit) => {
-              const done = completedToday.has(habit.id);
-              const isDeleting = confirmDelete === habit.id;
-              const accentColor = habit.color || "#f59e0b";
-              return (
-                <Card key={habit.id} className={cn("overflow-hidden border-l-4 transition-all duration-300", done && "opacity-65")}
-                  style={{ borderLeftColor: accentColor, borderRightColor: "hsl(var(--bg-h) calc(var(--bg-s) * 0.6579) 16%)", borderTopColor: "hsl(var(--bg-h) calc(var(--bg-s) * 0.6579) 16%)", borderBottomColor: "hsl(var(--bg-h) calc(var(--bg-s) * 0.6579) 16%)", background: done ? "hsl(var(--bg-h) calc(var(--bg-s) * 0.8947) 9%)" : "linear-gradient(135deg, hsl(var(--bg-h) calc(var(--bg-s) * 0.8947) 10%), hsl(var(--bg-h) calc(var(--bg-s) * 0.7895) 11%))" }}>
-                  <CardContent className="p-4 flex items-center gap-4">
-                    <HabitIcon icon={habit.icon} color={habit.color} />
-                    <div className="flex-1 min-w-0">
-                      <h3 className={cn("font-semibold text-base", done && "line-through text-slate-500")}>{habit.name}</h3>
-                      {habit.description && <p className="text-xs text-slate-400 truncate">{habit.description}</p>}
-                      <p className="text-xs text-slate-500 capitalize mt-0.5 tracking-wide">{habit.frequency}</p>
-                    </div>
-                    {isDeleting ? (
-                      <div className="flex items-center gap-2 shrink-0">
-                        <span className="text-xs text-slate-400 italic">Remove?</span>
-                        <Button size="sm" variant="destructive" onClick={() => handleDelete(habit.id)}>Yes</Button>
-                        <Button size="sm" variant="ghost" onClick={() => setConfirmDelete(null)}>No</Button>
-                      </div>
-                    ) : (
-                      <div className="flex items-center gap-2 shrink-0">
-                        <button onClick={() => setConfirmDelete(habit.id)} className="text-slate-500 hover:text-red-400 transition-colors p-1 rounded" title="Delete ritual">
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                        <Button size="sm" variant={done ? "secondary" : "outline"}
-                          className={cn("min-w-[90px]", done ? "border-green-500/25 text-green-400 bg-green-500/8" : "border-amber-500/25 text-amber-400 hover:bg-amber-500/10")}
-                          onClick={() => (done ? handleUndo(habit.id) : handleComplete(habit.id))}>
-                          {done ? (<><Check className="w-3 h-3 mr-1.5 inline" />Done</>) : "Complete"}
-                        </Button>
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              );
-            })}
-          </div>
-        </div>
+        <section aria-label="Rituals" className="glass" style={{ padding: "8px 24px" }}>
+          {state.habits.map((habit: Habit, i: number) => {
+            const done = completedToday.has(habit.id);
+            const asking = confirmDelete === habit.id;
+            return (
+              <div key={habit.id} className={cx("flex flex-wrap items-center gap-x-4 gap-y-2 py-3.5", i < state.habits.length - 1 && "divider")}>
+                <button type="button" aria-pressed={done} aria-label={done ? `Undo ${habit.name} for today` : `Complete ${habit.name}`}
+                  onClick={() => (done ? handleUndo(habit.id) : handleComplete(habit.id))} className="flex items-center justify-center rounded-full"
+                  style={{ width: 44, height: 44, margin: "-10px", border: 0, background: "transparent", cursor: "pointer" }}>
+                  <span aria-hidden="true" className={cx("check", done && "is-on")}>{done && <Check className="w-3.5 h-3.5" strokeWidth={3.2} />}</span>
+                </button>
+                <HabitIcon icon={habit.icon} color={habit.color} />
+                <div className="flex-1 min-w-[140px]">
+                  <div style={{ fontSize: 16, fontWeight: 600, color: done ? "var(--sub)" : "#f0f1f8", textDecoration: done ? "line-through" : undefined }}>{habit.name}</div>
+                  <div className="sub" style={{ fontSize: 13 }}>
+                    <span className="capitalize">{habit.frequency}</span>{habit.description ? ` · ${habit.description}` : ""}
+                  </div>
+                </div>
+                <span className="chip chip-round" aria-label={`${streaks[habit.id] ?? 0} day streak`}><FlameMark size={12} />{streaks[habit.id] ?? 0}</span>
+                {asking ? (
+                  <div className="flex items-center gap-2">
+                    <span className="sub" style={{ fontSize: 13 }}>Remove it and its history?</span>
+                    <Btn variant="danger" size="sm" onClick={() => handleDelete(habit.id)}>Remove</Btn>
+                    <Btn variant="quiet" size="sm" onClick={() => setConfirmDelete(null)}>Keep</Btn>
+                  </div>
+                ) : (
+                  <Btn variant="quiet" size="sm" aria-label={`Delete ${habit.name}`} title="Delete ritual" icon={<Trash2 className="w-4 h-4" />} onClick={() => setConfirmDelete(habit.id)} />
+                )}
+              </div>
+            );
+          })}
+        </section>
       )}
     </div>
   );
 }
 
-/* ============================== Tasks Page (Quests) ============================== */
+/* ============================== Quests (tasks) ============================== */
 
 const PRIORITIES = ["low", "medium", "high"] as const;
 type Priority = (typeof PRIORITIES)[number];
-const priorityStyle: Record<Priority, { color: string; bg: string; border: string }> = {
-  low: { color: "#60a5fa", bg: "rgba(96,165,250,0.08)", border: "rgba(96,165,250,0.25)" },
-  medium: { color: "#f59e0b", bg: "rgba(245,158,11,0.08)", border: "rgba(245,158,11,0.25)" },
-  high: { color: "#f87171", bg: "rgba(248,113,113,0.10)", border: "rgba(248,113,113,0.30)" },
-};
 
 function TasksPage({ state, setState }: { state: any; setState: any }) {
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ title: "", description: "", priority: "medium" as Priority, category: "" });
   const [formError, setFormError] = useState("");
   const [confirmDelete, setConfirmDelete] = useState<number | null>(null);
+  const [quick, setQuick] = useState("");
 
   const toggleTask = (id: number, currentStatus: string) => {
     const newStatus = currentStatus === "done" ? "todo" : "done";
@@ -1723,157 +1739,151 @@ function TasksPage({ state, setState }: { state: any; setState: any }) {
       tasks: s.tasks.map((t: Task) => (t.id === id ? { ...t, status: newStatus, completedAt: newStatus === "done" ? new Date().toISOString() : undefined } : t)),
     }));
   };
+  const addTask = (task: Omit<Task, "id" | "status">) => setState((s: any) => ({ ...s, tasks: [...s.tasks, { id: nextId(), status: "todo", ...task }] }));
   const handleCreate = () => {
-    if (!form.title.trim()) { setFormError("Title is required."); return; }
-    const newTask: Task = { id: nextId(), title: form.title.trim(), description: form.description || undefined, status: "todo", priority: form.priority, category: form.category || undefined };
-    setState((s: any) => ({ ...s, tasks: [...s.tasks, newTask] }));
+    if (!form.title.trim()) { setFormError("Give the quest a title."); return; }
+    addTask({ title: form.title.trim(), description: form.description || undefined, priority: form.priority, category: form.category || undefined });
     setShowForm(false);
     setForm({ title: "", description: "", priority: "medium", category: "" });
     setFormError("");
+  };
+  const handleQuick = () => {
+    if (!quick.trim()) return;
+    addTask({ title: quick.trim(), priority: "medium" });
+    setQuick("");
   };
   const handleDelete = (id: number) => {
     setState((s: any) => ({ ...s, tasks: s.tasks.filter((t: Task) => t.id !== id) }));
     setConfirmDelete(null);
   };
 
-  const todo = state.tasks.filter((t: Task) => t.status !== "done");
-  const done = state.tasks.filter((t: Task) => t.status === "done");
+  const todo = state.tasks.filter((t: Task) => t.status !== "done").sort((a: Task, b: Task) => PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority]);
+  const done = state.tasks.filter((t: Task) => t.status === "done")
+    .sort((a: Task, b: Task) => new Date(b.completedAt || 0).getTime() - new Date(a.completedAt || 0).getTime());
+
+  const rowProps = { onToggle: toggleTask, onDelete: handleDelete, confirmDelete, setConfirmDelete };
 
   return (
-    <div className="space-y-6 animate-in">
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="text-4xl font-serif font-bold" style={{ color: "hsl(var(--accent2-h) var(--accent2-s) 72%)", textShadow: "0 0 40px hsl(var(--accent2-h) var(--accent2-s) 60% / 0.25)" }}>Quests</h1>
-          <p className="text-slate-400 italic mt-1">Active endeavors and bounties.</p>
-        </div>
-        <Button variant="outline" className="border-violet-400/30 text-violet-300 hover:bg-violet-500/10" onClick={() => setShowForm((v: boolean) => !v)}>
-          {showForm ? <X className="w-4 h-4 mr-1.5" /> : <Plus className="w-4 h-4 mr-1.5" />}
-          {showForm ? "Cancel" : "New Quest"}
-        </Button>
-      </div>
+    <div className="flex flex-col gap-[18px] animate-in">
+      <PageHeader eyebrow="Study" title="Quests" sub="Active endeavours and bounties."
+        actions={<Btn variant={showForm ? "glass" : "primary"} icon={showForm ? <X className="w-4 h-4" /> : <Plus className="w-4 h-4" />} onClick={() => setShowForm((v) => !v)}>{showForm ? "Cancel" : "New quest"}</Btn>} />
 
       {showForm && (
-        <Card className="border-violet-400/25 relative overflow-hidden" style={{ background: "linear-gradient(135deg, hsl(var(--bg-h) var(--bg-s) 9%), hsl(var(--accent2-h) calc(var(--accent2-s) * 0.5) 10%))" }}>
-          <div className="absolute top-0 left-0 right-0 h-px" style={{ background: "linear-gradient(90deg, transparent, hsl(var(--accent2-h) var(--accent2-s) 60% / 0.4), transparent)" }} />
-          <CardContent className="p-5 space-y-4">
-            <h2 className="font-serif text-lg font-semibold flex items-center gap-2">
-              <span className="text-violet-300/60 text-sm">⚔</span> Embark on a new quest
-            </h2>
-            <div className="space-y-3">
-              <Input placeholder="Quest title *" value={form.title} onChange={(e: any) => { setForm((f: any) => ({ ...f, title: e.target.value })); setFormError(""); }} />
-              <Input placeholder="Description (optional)" value={form.description} onChange={(e: any) => setForm((f: any) => ({ ...f, description: e.target.value }))} />
-              <Input placeholder="Category (e.g. Learning, Wellness)" value={form.category} onChange={(e: any) => setForm((f: any) => ({ ...f, category: e.target.value }))} />
-              <div className="flex gap-2">
+        <section aria-label="New quest" className="glass" style={{ padding: "24px 26px" }}>
+          <PanelHead icon={<Plus className="w-4 h-4" style={{ color: "hsl(var(--ui-accent2))" }} />} title="Embark on a new quest" />
+          <div className="mt-5 grid gap-4 sm:grid-cols-2">
+            <div className="sm:col-span-2">
+              <label htmlFor="quest-title" className="field-label">Title</label>
+              <input id="quest-title" className="field" autoFocus placeholder="Reply to important emails" value={form.title}
+                onChange={(e) => { setForm((f) => ({ ...f, title: e.target.value })); setFormError(""); }} onKeyDown={(e) => e.key === "Enter" && handleCreate()} />
+            </div>
+            <div>
+              <label htmlFor="quest-desc" className="field-label">Description <span className="label">(optional)</span></label>
+              <input id="quest-desc" className="field" value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} />
+            </div>
+            <div>
+              <label htmlFor="quest-cat" className="field-label">Category <span className="label">(optional)</span></label>
+              <input id="quest-cat" className="field" placeholder="Work, Home, Learning…" value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))} />
+            </div>
+            <div className="sm:col-span-2">
+              <div className="field-label">Priority</div>
+              <div className="flex flex-wrap gap-2">
                 {PRIORITIES.map((p) => {
-                  const s = priorityStyle[p];
+                  const look = PRIORITY_LOOK[p];
+                  const on = form.priority === p;
                   return (
-                    <button key={p} onClick={() => setForm((f: any) => ({ ...f, priority: p }))}
-                      className="px-3 py-1.5 rounded-lg border text-sm capitalize transition-all"
-                      style={form.priority === p ? { borderColor: s.border, background: s.bg, color: s.color, fontWeight: 600 } : { borderColor: "hsl(var(--bg-h) calc(var(--bg-s) * 0.6579) 20%)", color: "#94a3b8" }}>
-                      {p}
+                    <button key={p} type="button" className="seg" aria-pressed={on} onClick={() => setForm((f) => ({ ...f, priority: p }))}
+                      style={on ? { background: look.bg, borderColor: look.bar, color: look.text } : undefined}>
+                      <span aria-hidden="true" className="inline-block mr-2 align-middle" style={{ width: 8, height: 8, borderRadius: 2, background: look.bar }} />{look.label}
                     </button>
                   );
                 })}
               </div>
-              {formError && <p className="text-red-400 text-sm">{formError}</p>}
-              <Button onClick={handleCreate} className="w-full" style={{ background: "hsl(var(--accent2-h) var(--accent2-s) 55%)", color: "white" }}>⚔ Add Quest</Button>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+          {formError && <p className="mt-3 mb-0" style={{ color: "#ffb3a8", fontSize: 14 }} role="alert">{formError}</p>}
+          <div className="mt-5 flex justify-end gap-2.5">
+            <Btn variant="quiet" onClick={() => setShowForm(false)}>Cancel</Btn>
+            <Btn variant="primary" icon={<Plus className="w-4 h-4" />} onClick={handleCreate}>Add quest</Btn>
+          </div>
+        </section>
       )}
 
-      {state.tasks.length === 0 ? (
-        <Card className="border-dashed border-white/10 bg-transparent">
-          <CardContent className="flex flex-col items-center justify-center h-48 text-center p-6">
-            <CheckSquare className="w-10 h-10 text-violet-400/25 mb-4" />
-            <p className="text-slate-400 mb-4 italic">No active quests. The realm is at peace.</p>
-            <Button onClick={() => setShowForm(true)}>⚔ Embark on Quest</Button>
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="space-y-6">
-          {todo.length > 0 && (
-            <div>
-              <ArcaneDivider className="mb-3 text-slate-500 text-[10px]"><span className="text-violet-300/50 text-[8px]">⚔</span> Active</ArcaneDivider>
-              <div className="space-y-2">
-                {todo.map((task: Task) => (
-                  <TaskRow key={task.id} task={task} onToggle={toggleTask} onDelete={handleDelete} confirmDelete={confirmDelete} setConfirmDelete={setConfirmDelete} />
-                ))}
-              </div>
-            </div>
-          )}
-          {done.length > 0 && (
-            <div>
-              <ArcaneDivider className="mb-3 text-slate-600 text-[10px]"><span className="text-[8px]">✓</span> Completed</ArcaneDivider>
-              <div className="space-y-2">
-                {done.map((task: Task) => (
-                  <TaskRow key={task.id} task={task} onToggle={toggleTask} onDelete={handleDelete} confirmDelete={confirmDelete} setConfirmDelete={setConfirmDelete} />
-                ))}
-              </div>
-            </div>
-          )}
+      <section aria-label="Active quests" className="glass" style={{ padding: "22px 24px" }}>
+        <PanelHead icon={<CheckSquare className="w-4 h-4" strokeWidth={1.8} style={{ color: "hsl(var(--ui-accent2))" }} />} title="Active" note={`${todo.length} open`} />
+        <div className="mt-2">
+          {todo.length === 0 && <p className="sub m-0 py-5 text-center" style={{ fontSize: 14 }}>No open quests. The realm is at peace.</p>}
+          {todo.map((task: Task, i: number) => <TaskRow key={task.id} task={task} last={i === todo.length - 1} {...rowProps} />)}
         </div>
+        <div className="well mt-3 flex items-center gap-2" style={{ padding: "0 6px 0 14px", borderRadius: 13 }}>
+          <label htmlFor="page-quick-quest" className="sr-only-x">Quick add a quest</label>
+          <Plus className="w-[15px] h-[15px] shrink-0 label" aria-hidden="true" />
+          <input id="page-quick-quest" className="flex-1 min-w-0 bg-transparent outline-none" style={{ minHeight: 44, fontSize: 14, color: "#f0f1f8", border: 0 }}
+            placeholder="Add a quest…" value={quick} onChange={(e) => setQuick(e.target.value)} onKeyDown={(e) => e.key === "Enter" && handleQuick()} />
+          <span aria-hidden="true" style={{ padding: "3px 7px", borderRadius: 6, border: "1px solid rgba(255,255,255,0.12)", fontSize: 11, fontWeight: 600, color: "var(--sub)" }}>Enter</span>
+        </div>
+      </section>
+
+      {done.length > 0 && (
+        <section aria-label="Completed quests" className="glass" style={{ padding: "22px 24px" }}>
+          <PanelHead icon={<Check className="w-4 h-4" strokeWidth={2} style={{ color: "#4fd1a1" }} />} title="Completed" note={`${done.length}`} />
+          <div className="mt-2">
+            {done.slice(0, 30).map((task: Task, i: number) => <TaskRow key={task.id} task={task} last={i === Math.min(done.length, 30) - 1} {...rowProps} />)}
+          </div>
+        </section>
       )}
     </div>
   );
 }
 
-function TaskRow({ task, onToggle, onDelete, confirmDelete, setConfirmDelete }: any) {
+function TaskRow({ task, last, onToggle, onDelete, confirmDelete, setConfirmDelete }: any) {
   const done = task.status === "done";
-  const askingDelete = confirmDelete === task.id;
-  const ps = priorityStyle[task.priority as Priority] ?? priorityStyle.medium;
+  const asking = confirmDelete === task.id;
+  const look = PRIORITY_LOOK[task.priority] ?? PRIORITY_LOOK.medium;
   return (
-    <Card className={cn("transition-all duration-200 border-white/5", done && "opacity-55")} style={{ background: "hsl(var(--bg-h) calc(var(--bg-s) * 0.8947) 10%)" }}>
-      <CardContent className="p-4 flex items-start gap-4">
-        <button onClick={() => onToggle(task.id, task.status)}
-          className={cn("mt-0.5 w-5 h-5 rounded border-2 flex items-center justify-center shrink-0 transition-all duration-200",
-            done ? "border-amber-400 bg-amber-400/80 text-slate-950" : "border-amber-500/35 hover:border-amber-400/70 hover:bg-amber-500/10")}>
-          {done && <Check className="w-3 h-3" />}
-        </button>
-        <div className="flex-1 min-w-0">
-          <p className={cn("font-medium text-sm leading-snug", done && "line-through text-slate-500")}>{task.title}</p>
-          {task.description && <p className="text-xs text-slate-400 mt-1 truncate">{task.description}</p>}
-          <div className="flex gap-2 mt-2 flex-wrap">
-            <span className="text-xs px-2 py-0.5 rounded-full border font-medium capitalize" style={{ color: ps.color, background: ps.bg, borderColor: ps.border }}>{task.priority}</span>
-            {task.category && <span className="text-xs px-2 py-0.5 rounded-full border border-white/10 text-slate-400">{task.category}</span>}
-          </div>
+    <div className={cx("flex flex-wrap items-center gap-x-3.5 gap-y-2 py-3", !last && "divider")}>
+      <button type="button" aria-pressed={done} aria-label={done ? `Mark "${task.title}" as not done` : `Complete "${task.title}"`} onClick={() => onToggle(task.id, task.status)}
+        className="flex items-center justify-center" style={{ width: 44, height: 44, margin: "-10px", border: 0, background: "transparent", cursor: "pointer" }}>
+        <span aria-hidden="true" className={cx("check", done && "is-on")}>{done && <Check className="w-3.5 h-3.5" strokeWidth={3.2} />}</span>
+      </button>
+      <span aria-hidden="true" style={{ width: 4, height: 30, borderRadius: 4, flexShrink: 0, background: done ? "rgba(255,255,255,0.18)" : look.bar }} />
+      <div className="flex-1 min-w-[160px]">
+        <div style={{ fontSize: 15, fontWeight: done ? 400 : 600, color: done ? "var(--label)" : "#f0f1f8", textDecoration: done ? "line-through" : undefined }}>{task.title}</div>
+        {task.description && <div className="sub truncate" style={{ fontSize: 13 }}>{task.description}</div>}
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {!done && <span className="chip" style={{ borderColor: "transparent", background: look.bg, color: look.text }}>{look.label}</span>}
+        {task.category && <span className="chip">{task.category}</span>}
+        {done && task.completedAt && <span className="chip" style={{ borderColor: "transparent" }}>{new Date(task.completedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}</span>}
+      </div>
+      {asking ? (
+        <div className="flex items-center gap-2">
+          <Btn variant="danger" size="sm" onClick={() => onDelete(task.id)}>Remove</Btn>
+          <Btn variant="quiet" size="sm" onClick={() => setConfirmDelete(null)}>Keep</Btn>
         </div>
-        {askingDelete ? (
-          <div className="flex items-center gap-2 shrink-0 self-center">
-            <span className="text-xs text-slate-400 italic">Remove?</span>
-            <Button size="sm" variant="destructive" onClick={() => onDelete(task.id)}>Yes</Button>
-            <Button size="sm" variant="ghost" onClick={() => setConfirmDelete(null)}>No</Button>
-          </div>
-        ) : (
-          <button onClick={() => setConfirmDelete(task.id)} className="self-center text-slate-500 hover:text-red-400 transition-colors p-1 rounded shrink-0" title="Delete quest">
-            <Trash2 className="w-3.5 h-3.5" />
-          </button>
-        )}
-      </CardContent>
-    </Card>
+      ) : (
+        <Btn variant="quiet" size="sm" aria-label={`Delete "${task.title}"`} title="Delete quest" icon={<Trash2 className="w-4 h-4" />} onClick={() => setConfirmDelete(task.id)} />
+      )}
+    </div>
   );
 }
 
-/* ============================== Focus Page ============================== */
+/* ============================== Focus ============================== */
 
-const PRESETS = [
-  { label: "15 min", minutes: 15 },
-  { label: "25 min", minutes: 25 },
-  { label: "30 min", minutes: 30 },
-  { label: "45 min", minutes: 45 },
-  { label: "60 min", minutes: 60 },
-];
+const PRESETS = [15, 25, 30, 45, 60];
 
-function FocusPage({ state, setState }: { state: any; setState: any }) {
-  const [selectedMinutes, setSelectedMinutes] = useState(25);
-  const [timeLeft, setTimeLeft] = useState(25 * 60);
-  const [isActive, setIsActive] = useState(false);
+type FocusRequest = { minutes: number; nonce: number } | null;
+
+function FocusPage({ state, setState, request, onRequestHandled }: { state: any; setState: any; request: FocusRequest; onRequestHandled: () => void }) {
+  // A request from the dashboard ("Start focus", the Focus widget's Begin) starts the timer straight away.
+  const [selectedMinutes, setSelectedMinutes] = useState(() => request?.minutes ?? 25);
+  const [timeLeft, setTimeLeft] = useState(() => (request?.minutes ?? 25) * 60);
+  const [isActive, setIsActive] = useState(() => !!request);
   const [isPaused, setIsPaused] = useState(false);
-  const [label, setLabel] = useState("Deep Work");
+  const [label, setLabel] = useState("Deep work");
   const [sessionSaved, setSessionSaved] = useState(false);
   const [showCustom, setShowCustom] = useState(false);
   const [customInput, setCustomInput] = useState("");
-  const customInputRef = useRef<HTMLInputElement>(null);
 
   const saveSession = useCallback((minutes: number) => {
     if (minutes < 1) return;
@@ -1882,14 +1892,22 @@ function FocusPage({ state, setState }: { state: any; setState: any }) {
   }, [label, setState]);
 
   useEffect(() => {
-    if (!isActive && !isPaused) {
-      setTimeLeft(selectedMinutes * 60);
-      setSessionSaved(false);
-    }
+    if (!isActive && !isPaused) { setTimeLeft(selectedMinutes * 60); setSessionSaved(false); }
   }, [selectedMinutes, isActive, isPaused]);
 
+  // Declared after the effect above so a new request wins over its reset.
   useEffect(() => {
-    let interval: ReturnType<typeof setInterval>;
+    if (!request) return;
+    setSelectedMinutes(request.minutes);
+    setTimeLeft(request.minutes * 60);
+    setSessionSaved(false);
+    setIsPaused(false);
+    setIsActive(true);
+    onRequestHandled(); // so coming back to this page later doesn't start it again
+  }, [request?.nonce]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    let interval: ReturnType<typeof setInterval> | undefined;
     if (isActive && !isPaused && timeLeft > 0) {
       interval = setInterval(() => setTimeLeft((t) => t - 1), 1000);
     } else if (isActive && timeLeft === 0 && !sessionSaved) {
@@ -1897,7 +1915,7 @@ function FocusPage({ state, setState }: { state: any; setState: any }) {
       setSessionSaved(true);
       saveSession(selectedMinutes);
     }
-    return () => clearInterval(interval);
+    return () => { if (interval) clearInterval(interval); };
   }, [isActive, isPaused, timeLeft, sessionSaved, selectedMinutes, saveSession]);
 
   const applyCustomDuration = () => {
@@ -1918,112 +1936,127 @@ function FocusPage({ state, setState }: { state: any; setState: any }) {
   };
   const handleReset = () => { setIsActive(false); setIsPaused(false); setTimeLeft(selectedMinutes * 60); setSessionSaved(false); };
 
-  const isPreset = PRESETS.some((p) => p.minutes === selectedMinutes);
+  const isPreset = PRESETS.includes(selectedMinutes);
   const minutes = Math.floor(timeLeft / 60);
   const seconds = timeLeft % 60;
-  const progress = ((selectedMinutes * 60 - timeLeft) / (selectedMinutes * 60)) * 100;
+  const progress = (selectedMinutes * 60 - timeLeft) / (selectedMinutes * 60);
   const isFinished = timeLeft === 0;
+  const idle = !isActive && !isPaused;
+  const summary = computeSummary(state);
+  const { days, todayIdx } = focusThisWeek(state);
+  const weekTotal = days.reduce((a, b) => a + b, 0);
+  const maxDay = Math.max(1, ...days);
 
   return (
-    <div className="space-y-8 max-w-xl mx-auto animate-in">
-      <div className="text-center">
-        <h1 className="text-4xl font-serif font-bold" style={{ color: "hsl(210 80% 72%)", textShadow: "0 0 40px hsl(210 80% 65% / 0.25)" }}>Focus</h1>
-        <p className="text-slate-400 italic mt-1">Channel your arcane concentration.</p>
-      </div>
+    <div className="flex flex-col gap-[18px] animate-in">
+      <PageHeader eyebrow="Study" title="Focus" sub="Channel your arcane concentration." />
 
-      {!isActive && !isPaused && (
-        <div className="flex flex-wrap gap-2 justify-center">
-          {PRESETS.map((d) => (
-            <button key={d.minutes} onClick={() => { setSelectedMinutes(d.minutes); setShowCustom(false); }}
-              className={cn("px-4 py-2 rounded-full border text-sm font-medium transition-all duration-200",
-                selectedMinutes === d.minutes && isPreset ? "border-amber-400/60 bg-amber-500/15 text-amber-300" : "border-white/10 text-slate-400 hover:border-amber-400/40")}>
-              {d.label}
-            </button>
-          ))}
-          {!showCustom ? (
-            <button onClick={() => { setShowCustom(true); setCustomInput(String(selectedMinutes)); setTimeout(() => customInputRef.current?.focus(), 50); }}
-              className={cn("px-4 py-2 rounded-full border text-sm font-medium transition-all duration-200 flex items-center gap-1.5",
-                !isPreset ? "border-amber-400/60 bg-amber-500/15 text-amber-300" : "border-white/10 text-slate-400 hover:border-amber-400/40")}>
-              <Pencil className="w-3 h-3" /> {!isPreset ? `${selectedMinutes} min` : "Custom"}
-            </button>
-          ) : (
-            <div className="flex items-center gap-1.5">
-              <Input ref={customInputRef} type="number" value={customInput} onChange={(e: any) => setCustomInput(e.target.value)}
-                onKeyDown={(e: any) => { if (e.key === "Enter") applyCustomDuration(); if (e.key === "Escape") { setShowCustom(false); setCustomInput(""); } }}
-                className="w-20 h-9 text-center rounded-full" min={1} max={480} placeholder="min" />
-              <button onClick={applyCustomDuration} className="w-9 h-9 rounded-full border border-amber-500/50 bg-amber-500/15 text-amber-300 flex items-center justify-center"><Check className="w-4 h-4" /></button>
-              <button onClick={() => { setShowCustom(false); setCustomInput(""); }} className="w-9 h-9 rounded-full border border-white/10 flex items-center justify-center text-slate-400">✕</button>
+      <div className="flex flex-wrap gap-[18px]">
+        <section aria-label="Focus timer" className="glass flex flex-col items-center gap-6" style={{ flex: "2 1 460px", padding: "30px 28px" }}>
+          <Ring pct={progress} size={300} stroke={12} color={isFinished ? "#4fd1a1" : "hsl(var(--ui-accent))"}>
+            <div className="display tnum" role="timer" aria-live="off" style={{ fontSize: 84, letterSpacing: "-0.02em", opacity: isPaused ? 0.55 : 1 }}>
+              {String(minutes).padStart(2, "0")}:{String(seconds).padStart(2, "0")}
+            </div>
+            <div className="sub mt-1" style={{ fontSize: 13, fontWeight: 600 }}>
+              {isFinished ? "Session complete" : isPaused ? "Paused" : isActive ? "Focusing" : `${selectedMinutes} minutes`}
+            </div>
+          </Ring>
+
+          <div className="w-full max-w-sm">
+            <label htmlFor="focus-label" className="sr-only-x">What are you focusing on?</label>
+            <input id="focus-label" className="field text-center" value={label} onChange={(e) => setLabel(e.target.value)} disabled={isActive} placeholder="What are you focusing on?" />
+          </div>
+
+          {idle && !isFinished && (
+            <div className="flex flex-wrap justify-center gap-2">
+              {PRESETS.map((m) => (
+                <button key={m} type="button" className="seg" aria-pressed={selectedMinutes === m && !showCustom} aria-label={`${m} minutes`}
+                  onClick={() => { setSelectedMinutes(m); setShowCustom(false); }}>{m}</button>
+              ))}
+              {!showCustom ? (
+                <button type="button" className="seg" aria-pressed={!isPreset} onClick={() => { setShowCustom(true); setCustomInput(String(selectedMinutes)); }}>
+                  {!isPreset ? `${selectedMinutes} min` : "Custom"}
+                </button>
+              ) : (
+                <div className="flex items-center gap-1.5">
+                  <label htmlFor="focus-custom" className="sr-only-x">Minutes</label>
+                  <input id="focus-custom" type="number" className="field text-center" style={{ width: 88 }} autoFocus min={1} max={480} value={customInput}
+                    onChange={(e) => setCustomInput(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") applyCustomDuration(); if (e.key === "Escape") { setShowCustom(false); setCustomInput(""); } }} />
+                  <Btn variant="glass" aria-label="Use this length" icon={<Check className="w-4 h-4" />} onClick={applyCustomDuration} />
+                </div>
+              )}
             </div>
           )}
-        </div>
-      )}
 
-      <Card className={cn("overflow-hidden relative transition-all duration-500", isFinished ? "border-green-500/30" : "border-amber-500/15")}
-        style={{ background: "linear-gradient(135deg, hsl(var(--bg-h) var(--bg-s) 9%), hsl(var(--accent2-h) calc(var(--accent2-s) * 0.5) 10%), hsl(var(--bg-h) var(--bg-s) 9%))" }}>
-        <div className="absolute top-0 left-0 right-0 h-px" style={{ background: isFinished ? "linear-gradient(90deg, transparent, rgba(52,211,153,0.5), transparent)" : "linear-gradient(90deg, transparent, hsl(var(--accent-h) var(--accent-s) 52% / 0.35), hsl(var(--accent2-h) var(--accent2-s) 60% / 0.2), transparent)" }} />
-        <div className="absolute top-0 left-0 w-full h-0.5 bg-white/5">
-          <div className="h-full transition-all duration-1000 ease-linear" style={{ width: `${progress}%`, background: isFinished ? "#22c55e" : "linear-gradient(90deg, hsl(var(--accent2-h) var(--accent2-s) 60%), hsl(var(--accent-h) var(--accent-s) 52%))" }} />
-        </div>
-        <CardContent className="p-10 flex flex-col items-center gap-7 relative">
-          <div className={cn("text-7xl sm:text-8xl font-serif font-light tracking-tight tabular-nums transition-colors duration-500", isPaused && "opacity-50")}
-            style={{ color: isFinished ? "hsl(142 70% 65%)" : "hsl(var(--accent-h) var(--accent-s) 62%)", textShadow: isFinished ? "0 0 40px rgba(52,211,153,0.35)" : "0 0 40px hsl(var(--accent-h) var(--accent-s) 52% / 0.3)" }}>
-            {String(minutes).padStart(2, "0")}:{String(seconds).padStart(2, "0")}
-          </div>
-          {isFinished && <div className="text-green-400 font-semibold text-sm flex items-center gap-1.5"><span>✦</span> Session complete! Well channeled.</div>}
-          <Input value={label} onChange={(e: any) => setLabel(e.target.value)}
-            className="text-center text-base bg-transparent border-t-0 border-x-0 border-b rounded-none px-2 max-w-xs italic"
-            placeholder="What are you focusing on?" disabled={isActive} />
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap justify-center gap-2.5">
             {isFinished ? (
-              <Button size="lg" className="rounded-full px-8" onClick={handleReset} style={{ background: "hsl(var(--accent-h) var(--accent-s) 45%)" }}><RotateCcw className="w-4 h-4 mr-2" /> New Session</Button>
-            ) : !isActive && !isPaused ? (
-              <Button size="lg" className="rounded-full px-12" onClick={handleStart} style={{ background: "linear-gradient(135deg, hsl(var(--accent-h) var(--accent-s) 45%), hsl(var(--accent-h) calc(var(--accent-s) * 0.9318) 52%))" }}><Play className="w-4 h-4 mr-2" /> Begin</Button>
+              <Btn variant="primary" icon={<RotateCcw className="w-4 h-4" />} onClick={handleReset}>New session</Btn>
+            ) : idle ? (
+              <Btn variant="primary" style={{ padding: "0 34px" }} icon={<Play className="w-3.5 h-3.5" fill="currentColor" />} onClick={handleStart}>Begin</Btn>
             ) : (
               <>
-                {isActive ? (
-                  <Button size="lg" variant="outline" className="rounded-full border-amber-500/30 text-amber-400 hover:bg-amber-500/10" onClick={handlePause}><Pause className="w-4 h-4 mr-2" /> Pause</Button>
-                ) : (
-                  <Button size="lg" className="rounded-full px-8" onClick={handleStart} style={{ background: "linear-gradient(135deg, hsl(var(--accent-h) var(--accent-s) 45%), hsl(var(--accent-h) calc(var(--accent-s) * 0.9318) 52%))" }}><Play className="w-4 h-4 mr-2" /> Resume</Button>
-                )}
-                <Button size="lg" variant="secondary" className="rounded-full" onClick={handleStop}><Square className="w-4 h-4 mr-2" /> Stop</Button>
+                {isActive
+                  ? <Btn variant="glass" icon={<Pause className="w-4 h-4" />} onClick={handlePause}>Pause</Btn>
+                  : <Btn variant="primary" icon={<Play className="w-3.5 h-3.5" fill="currentColor" />} onClick={handleStart}>Resume</Btn>}
+                <Btn variant="glass" icon={<Square className="w-3.5 h-3.5" />} onClick={handleStop}>Stop and save</Btn>
               </>
             )}
           </div>
-          {isPaused && <p className="text-xs text-slate-400 italic">Paused — the flame waits</p>}
-        </CardContent>
-      </Card>
+          {isFinished && <p className="m-0" style={{ color: "#8ce6c4", fontSize: 14, fontWeight: 600 }} role="status">Well channelled. The session is saved.</p>}
+        </section>
 
-      {state.focusSessions.length > 0 && (
-        <div>
-          <ArcaneDivider className="mb-3 text-slate-500 text-[10px]"><span className="text-amber-400/50 text-[8px]">✦</span> Recent Sessions</ArcaneDivider>
-          <div className="space-y-2">
-            {state.focusSessions.slice(0, 6).map((session: FocusSession) => (
-              <Card key={session.id} className="border-white/5" style={{ background: "hsl(var(--bg-h) calc(var(--bg-s) * 0.8947) 10%)" }}>
-                <CardContent className="p-3.5 flex items-center justify-between gap-3">
-                  <div className="flex-1 min-w-0">
-                    <div className="font-medium text-sm truncate italic">{session.label}</div>
-                    <div className="text-xs text-slate-400 mt-0.5">{new Date(session.startedAt).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })}</div>
-                  </div>
-                  <div className="font-bold shrink-0 text-amber-400">{session.durationMinutes} min</div>
-                </CardContent>
-              </Card>
-            ))}
+        <div className="flex flex-col gap-[18px]" style={{ flex: "1 1 260px" }}>
+          <div className="tile" style={{ padding: "20px 22px" }}>
+            <div className="sub" style={{ fontSize: 13, fontWeight: 600 }}>Today</div>
+            <div className="display tnum mt-2.5" style={{ fontSize: 42 }}>{summary.totalFocusMinutesToday}<span style={{ fontSize: 22, color: "var(--sub)" }}> min</span></div>
+          </div>
+          <div className="tile" style={{ padding: "20px 22px" }}>
+            <div className="flex items-center justify-between">
+              <span className="sub" style={{ fontSize: 13, fontWeight: 600 }}>This week</span>
+              <span className="sub tnum" style={{ fontSize: 13 }}>{weekTotal} min</span>
+            </div>
+            <div role="img" aria-label={`Focus minutes this week: ${days.slice(0, todayIdx + 1).join(", ")}`} className="mt-4 flex items-end justify-between gap-2" style={{ height: 70 }}>
+              {days.map((m, i) => (
+                <div key={i} className="flex flex-1 flex-col items-center gap-1.5">
+                  <span style={{ width: "100%", maxWidth: 14, borderRadius: 4, height: i > todayIdx ? 3 : Math.max(3, Math.round((m / maxDay) * 52)), background: i === todayIdx ? "hsl(var(--ui-accent))" : i > todayIdx ? "rgba(255,255,255,0.1)" : "rgba(255,255,255,0.24)" }} />
+                  <span className="label" style={{ fontSize: 11, fontWeight: 600 }}>{"MTWTFSS"[i]}</span>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
+      </div>
+
+      {state.focusSessions.length > 0 && (
+        <section aria-label="Recent sessions" className="glass" style={{ padding: "22px 24px" }}>
+          <PanelHead icon={<History className="w-4 h-4" strokeWidth={1.8} style={{ color: "#7cc8ff" }} />} title="Recent sessions" />
+          <div className="mt-2">
+            {state.focusSessions.slice(0, 8).map((session: FocusSession, i: number, arr: FocusSession[]) => (
+              <div key={session.id} className={cx("flex items-center justify-between gap-3 py-3", i < arr.length - 1 && "divider")}>
+                <div className="min-w-0">
+                  <div className="truncate" style={{ fontSize: 15, fontWeight: 600 }}>{session.label}</div>
+                  <div className="sub" style={{ fontSize: 13 }}>{new Date(session.startedAt).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })}</div>
+                </div>
+                <div className="display tnum shrink-0" style={{ fontSize: 28 }}>{session.durationMinutes}<span style={{ fontSize: 15, color: "var(--sub)" }}> min</span></div>
+              </div>
+            ))}
+          </div>
+        </section>
       )}
     </div>
   );
 }
 
-/* ============================== Health Page (Vitality) ============================== */
+/* ============================== Vitality ============================== */
 
 type MetricKey = "water" | "sleep" | "steps" | "mood" | "exercise";
 const METRICS: { key: MetricKey; label: string; icon: any; unit: string; color: string; step: number; min: number; max: number }[] = [
-  { key: "water", label: "Water", icon: Droplet, unit: "cups", color: "#60a5fa", step: 1, min: 0, max: 20 },
-  { key: "sleep", label: "Sleep", icon: Moon, unit: "hrs", color: "#a78bfa", step: 0.5, min: 0, max: 16 },
-  { key: "steps", label: "Steps", icon: Footprints, unit: "k", color: "#34d399", step: 1000, min: 0, max: 50000 },
-  { key: "mood", label: "Mood", icon: Smile, unit: "/5", color: "#f59e0b", step: 1, min: 1, max: 5 },
-  { key: "exercise", label: "Exercise", icon: Dumbbell, unit: "min", color: "#fb923c", step: 5, min: 0, max: 300 },
+  { key: "water", label: "Water", icon: Droplet, unit: "cups", color: "#7cc8ff", step: 1, min: 0, max: 20 },
+  { key: "sleep", label: "Sleep", icon: Moon, unit: "hrs", color: "#a891ff", step: 0.5, min: 0, max: 16 },
+  { key: "steps", label: "Steps", icon: Footprints, unit: "k", color: "#4fd1a1", step: 1000, min: 0, max: 50000 },
+  { key: "mood", label: "Mood", icon: Smile, unit: "/5", color: "#f2c46b", step: 1, min: 1, max: 5 },
+  { key: "exercise", label: "Exercise", icon: Dumbbell, unit: "min", color: "#ff9f6e", step: 5, min: 0, max: 300 },
 ];
 function formatValue(key: MetricKey, v: number) {
   if (key === "steps") return v >= 1000 ? (v / 1000).toFixed(1) : String(v);
@@ -2033,102 +2066,89 @@ function formatValue(key: MetricKey, v: number) {
 
 function HealthPage({ state, setState }: { state: any; setState: any }) {
   const today = todayStr();
-  const todayLogs = state.healthLogs.filter((l: HealthLog) => l.loggedAt.split("T")[0] === today);
   const latestByType: Record<string, number> = {};
-  for (const log of todayLogs) latestByType[log.type] = log.value;
+  for (const log of state.healthLogs as HealthLog[]) if (log.loggedAt.split("T")[0] === today) latestByType[log.type] = log.value;
 
   const [activeKey, setActiveKey] = useState<MetricKey | null>(null);
   const [inputVal, setInputVal] = useState<number>(0);
-  const [saved, setSaved] = useState<Set<MetricKey>>(new Set());
+  const [justSaved, setJustSaved] = useState<MetricKey | null>(null);
+  const active = METRICS.find((m) => m.key === activeKey) ?? null;
 
   const openLog = (key: MetricKey) => {
-    const m = METRICS.find((m) => m.key === key)!;
-    setInputVal(latestByType[key] ?? m.step);
-    setActiveKey(key);
+    const m = METRICS.find((x) => x.key === key)!;
+    setInputVal(latestByType[key] ?? (key === "mood" ? 3 : m.step));
+    setActiveKey(activeKey === key ? null : key);
   };
   const handleLog = () => {
     if (!activeKey) return;
     const newLog: HealthLog = { id: nextId(), type: activeKey, value: inputVal, unit: activeKey, loggedAt: new Date().toISOString() };
     setState((s: any) => ({ ...s, healthLogs: [...s.healthLogs, newLog] }));
-    setSaved((prev) => new Set([...prev, activeKey]));
-    setTimeout(() => setSaved((prev) => { const s = new Set(prev); s.delete(activeKey!); return s; }), 2000);
+    setJustSaved(activeKey);
+    setTimeout(() => setJustSaved(null), 2000);
     setActiveKey(null);
   };
+  const clamp = (v: number, m: typeof METRICS[number]) => Math.min(m.max, Math.max(m.min, +v.toFixed(2)));
 
   return (
-    <div className="space-y-8 animate-in">
-      <div>
-        <h1 className="text-4xl font-serif font-bold" style={{ color: "hsl(142 60% 60%)", textShadow: "0 0 40px hsl(142 60% 50% / 0.2)" }}>Vitality</h1>
-        <p className="text-slate-400 italic mt-1">Tend to your physical and spiritual vessels.</p>
-      </div>
+    <div className="flex flex-col gap-[18px] animate-in">
+      <PageHeader eyebrow="Body & mind" title="Vitality" sub="Tend to your physical and spiritual vessels." />
 
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-[18px]">
         {METRICS.map((m) => {
           const Icon = m.icon;
-          const val = latestByType[m.key] ?? 0;
-          const isActive = activeKey === m.key;
-          const justSaved = saved.has(m.key);
+          const val = latestByType[m.key];
+          const on = activeKey === m.key;
           return (
-            <div key={m.key} className="space-y-2">
-              <Card onClick={() => !isActive && openLog(m.key)} className="cursor-pointer transition-all duration-200 border-white/5"
-                style={{ background: "hsl(var(--bg-h) calc(var(--bg-s) * 0.8947) 10%)", ...(isActive ? { borderColor: m.color + "50" } : {}), ...(justSaved ? { borderColor: "rgba(52,211,153,0.4)" } : {}) }}>
-                <CardContent className="p-5 flex flex-col items-center text-center">
-                  <div className="w-10 h-10 rounded-full flex items-center justify-center mb-3" style={{ background: m.color + "18", border: `1px solid ${m.color}28` }}>
-                    <Icon className="w-5 h-5" style={{ color: m.color }} />
-                  </div>
-                  <div className="text-2xl font-serif font-bold mb-0.5" style={{ color: m.color, textShadow: `0 0 16px ${m.color}40` }}>
-                    {formatValue(m.key, val)}<span className="text-xs font-normal text-slate-400 ml-1">{m.unit}</span>
-                  </div>
-                  <div className="text-xs text-slate-400 uppercase tracking-wide font-medium">{m.label}</div>
-                  {justSaved && <div className="mt-2 text-green-400 text-xs font-semibold flex items-center gap-1"><Check className="w-3 h-3" /> Logged!</div>}
-                </CardContent>
-              </Card>
-              {isActive && (
-                <Card className="relative overflow-hidden" style={{ background: "linear-gradient(135deg, hsl(var(--bg-h) var(--bg-s) 9%), hsl(var(--accent2-h) calc(var(--accent2-s) * 0.5) 10%))", borderColor: m.color + "35" }}>
-                  <CardContent className="p-4 space-y-3">
-                    <p className="text-sm font-medium text-center" style={{ color: m.color }}>Log {m.label}</p>
-                    <div className="flex items-center gap-2 justify-center">
-                      <Button size="icon" variant="outline" className="h-9 w-9 rounded-full border-white/10" onClick={() => setInputVal((v) => Math.max(m.min, +(v - m.step).toFixed(2)))}><Minus className="w-4 h-4" /></Button>
-                      <Input type="number" value={inputVal} onChange={(e: any) => setInputVal(Number(e.target.value))} className="w-20 text-center font-bold text-lg h-9" min={m.min} max={m.max} step={m.step} />
-                      <Button size="icon" variant="outline" className="h-9 w-9 rounded-full border-white/10" onClick={() => setInputVal((v) => Math.min(m.max, +(v + m.step).toFixed(2)))}><Plus className="w-4 h-4" /></Button>
-                    </div>
-                    {m.key === "mood" && (
-                      <div className="flex justify-center gap-1.5">
-                        {[1, 2, 3, 4, 5].map((n) => (
-                          <button key={n} onClick={() => setInputVal(n)} className={cn("w-8 h-8 rounded-full text-sm transition-all", inputVal === n ? "scale-125 ring-1 ring-amber-400/40" : "hover:scale-110 hover:bg-amber-500/10")}>
-                            {["😞", "😕", "😐", "🙂", "😄"][n - 1]}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                    <div className="flex gap-2">
-                      <Button size="sm" variant="ghost" onClick={() => setActiveKey(null)} className="flex-1">Cancel</Button>
-                      <Button size="sm" onClick={handleLog} className="flex-1 border-amber-500/30 text-amber-400 hover:bg-amber-500/10" variant="outline">✦ Log</Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
-            </div>
+            <button key={m.key} type="button" onClick={() => openLog(m.key)} aria-expanded={on} aria-label={`${m.label}: ${val !== undefined ? `${formatValue(m.key, val)} ${m.unit}` : "not logged today"}. Log ${m.label.toLowerCase()}`}
+              className="tile flex flex-col text-left transition-colors hover:bg-white/[0.07]"
+              style={{ padding: "20px 22px", minHeight: 150, borderColor: on ? m.color : justSaved === m.key ? "rgba(79,209,161,0.6)" : undefined }}>
+              <span className="flex items-center justify-between w-full">
+                <span className="sub" style={{ fontSize: 13, fontWeight: 600 }}>{m.label}</span>
+                <Icon className="w-[18px] h-[18px]" strokeWidth={1.7} style={{ color: m.color }} aria-hidden="true" />
+              </span>
+              <span className="display tnum mt-auto pt-4" style={{ fontSize: 46 }}>
+                {val !== undefined ? formatValue(m.key, val) : "–"}<span style={{ fontSize: 18, color: "var(--sub)" }}> {m.unit}</span>
+              </span>
+              <span className="mt-1" style={{ fontSize: 12, fontWeight: 600, color: justSaved === m.key ? "#8ce6c4" : "var(--label)" }}>
+                {justSaved === m.key ? "Logged" : val !== undefined ? "Today" : "Tap to log"}
+              </span>
+            </button>
           );
         })}
       </div>
 
-      <Card className="border-white/5" style={{ background: "hsl(var(--bg-h) calc(var(--bg-s) * 0.8947) 9%)" }}>
-        <CardContent className="p-5">
-          <p className="text-sm text-slate-400 text-center italic">✦ Tap any vessel above to log your daily measures. Values accumulate throughout the day.</p>
-        </CardContent>
-      </Card>
+      {active && (
+        <section aria-label={`Log ${active.label}`} className="glass flex flex-wrap items-center gap-5" style={{ padding: "22px 24px" }}>
+          <PanelHead icon={<active.icon className="w-4 h-4" strokeWidth={1.8} style={{ color: active.color }} />} title={`Log ${active.label.toLowerCase()}`} />
+          <div className="flex items-center gap-2">
+            <Btn variant="glass" aria-label="Less" icon={<Minus className="w-4 h-4" />} onClick={() => setInputVal((v) => clamp(v - active.step, active))} />
+            <label htmlFor="vital-value" className="sr-only-x">{active.label} ({active.unit})</label>
+            <input id="vital-value" type="number" className="field text-center tnum" style={{ width: 110, fontSize: 18, fontWeight: 700 }}
+              value={inputVal} min={active.min} max={active.max} step={active.step} onChange={(e) => setInputVal(Number(e.target.value))}
+              onKeyDown={(e) => e.key === "Enter" && handleLog()} />
+            <Btn variant="glass" aria-label="More" icon={<Plus className="w-4 h-4" />} onClick={() => setInputVal((v) => clamp(v + active.step, active))} />
+            <span className="sub" style={{ fontSize: 14 }}>{active.unit}</span>
+          </div>
+          {active.key === "mood" && <MoodPicker value={inputVal} onChange={(v) => setInputVal(v)} />}
+          <div className="ml-auto flex gap-2.5">
+            <Btn variant="quiet" onClick={() => setActiveKey(null)}>Cancel</Btn>
+            <Btn variant="primary" icon={<Check className="w-4 h-4" />} onClick={handleLog}>Log it</Btn>
+          </div>
+        </section>
+      )}
+
+      <p className="sub m-0 px-2" style={{ fontSize: 14 }}>Tap a measure to log it. The latest value for today is shown; your journal mood is logged here too.</p>
     </div>
   );
 }
 
-/* ============================== Fasting Page ============================== */
+/* ============================== Fast ============================== */
 
 const PROTOCOLS = [
-  { id: "16:8", label: "16 : 8", hours: 16, desc: "Fast 16h, eat in 8h window" },
-  { id: "18:6", label: "18 : 6", hours: 18, desc: "Fast 18h, eat in 6h window" },
-  { id: "20:4", label: "20 : 4", hours: 20, desc: "Fast 20h, eat in 4h window" },
-  { id: "24h", label: "24h", hours: 24, desc: "Full day fast" },
+  { id: "16:8", label: "16 : 8", hours: 16, desc: "Fast 16h, eat in an 8h window" },
+  { id: "18:6", label: "18 : 6", hours: 18, desc: "Fast 18h, eat in a 6h window" },
+  { id: "20:4", label: "20 : 4", hours: 20, desc: "Fast 20h, eat in a 4h window" },
+  { id: "24h", label: "24h", hours: 24, desc: "A full day" },
   { id: "custom", label: "Custom", hours: 0, desc: "Set your own target" },
 ] as const;
 type ProtocolId = (typeof PROTOCOLS)[number]["id"];
@@ -2143,35 +2163,18 @@ function formatDuration(ms: number) {
 function formatHours(ms: number) {
   return (ms / 3_600_000).toFixed(1);
 }
-function CircleProgress({ pct, size = 220, strokeWidth = 12, color = "hsl(var(--accent-h) var(--accent-s) 42%)" }: any) {
-  const r = (size - strokeWidth) / 2;
-  const circ = 2 * Math.PI * r;
-  const offset = circ * (1 - Math.min(pct, 1));
-  const cx = size / 2;
-  return (
-    <svg width={size} height={size} className="-rotate-90">
-      <circle cx={cx} cy={cx} r={r} fill="none" style={{ stroke: "hsl(var(--th-amber-500) / 0.1)" }} strokeWidth={strokeWidth} />
-      <circle cx={cx} cy={cx} r={r} fill="none" style={{ stroke: color }} strokeWidth={strokeWidth} strokeDasharray={circ} strokeDashoffset={offset} strokeLinecap="round" className="transition-all duration-1000 ease-linear" />
-    </svg>
-  );
-}
 
 function FastingPage({ state, setState }: { state: any; setState: any }) {
   const currentFast = state.fastSessions.find((f: FastSession) => f.status === "active");
-  const history = state.fastSessions.filter((f: FastSession) => f.status !== "active").sort((a: FastSession, b: FastSession) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime());
-
+  const history = state.fastSessions.filter((f: FastSession) => f.status !== "active")
+    .sort((a: FastSession, b: FastSession) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime());
   const [selectedProtocol, setSelectedProtocol] = useState<ProtocolId>("16:8");
   const [customHours, setCustomHours] = useState(20);
-  const [now, setNow] = useState(Date.now());
-
-  useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(t);
-  }, []);
+  const now = useNow(1000, !!currentFast);
 
   const handleStart = () => {
     const proto = PROTOCOLS.find((p) => p.id === selectedProtocol)!;
-    const hours = selectedProtocol === "custom" ? customHours : proto.hours;
+    const hours = selectedProtocol === "custom" ? Math.max(1, Math.min(72, customHours || 1)) : proto.hours;
     const newFast: FastSession = { id: nextId(), protocol: selectedProtocol, targetHours: hours, startedAt: new Date().toISOString(), status: "active" };
     setState((s: any) => ({ ...s, fastSessions: [...s.fastSessions, newFast] }));
   };
@@ -2187,160 +2190,123 @@ function FastingPage({ state, setState }: { state: any; setState: any }) {
   const pct = targetMs > 0 ? elapsed / targetMs : 0;
   const isComplete = pct >= 1;
   const remainingMs = Math.max(0, targetMs - elapsed);
-  const ringColor = isComplete ? "hsl(142 60% 45%)" : pct > 0.75 ? "hsl(var(--accent-h) var(--accent-s) 42%)" : "hsl(var(--accent-h) var(--accent-s) 52%)";
 
   return (
-    <div className="space-y-8 animate-in">
-      <header>
-        <h1 className="text-4xl font-serif font-bold flex items-center gap-2 text-amber-400">
-          <Moon className="w-8 h-8" /> Fast
-        </h1>
-        <p className="text-slate-400 italic mt-1">Clarity through restraint.</p>
-      </header>
+    <div className="flex flex-col gap-[18px] animate-in">
+      <PageHeader eyebrow="Body & mind" title="Fast" sub="Clarity through restraint." />
 
       {currentFast ? (
-        <div className="space-y-6">
-          <Card className="relative overflow-hidden border-amber-500/20" style={{ background: "linear-gradient(135deg, hsl(var(--bg-h) calc(var(--bg-s) * 0.9474) 10%), hsl(var(--bg-h) calc(var(--bg-s) * 0.7895) 9%), hsl(var(--accent2-h) calc(var(--accent2-s) * 0.4167) 10%))" }}>
-            <div className="absolute inset-0 pointer-events-none" style={{ background: "radial-gradient(ellipse at 50% 0%, hsl(var(--accent-h) var(--accent-s) 52% / 0.08) 0%, transparent 65%)" }} />
-            <CardContent className="p-8 flex flex-col items-center text-center relative">
-              <div className="relative mb-4">
-                <CircleProgress pct={pct} color={ringColor} />
-                <div className="absolute inset-0 flex flex-col items-center justify-center">
-                  {isComplete ? <CheckCircle className="w-8 h-8 text-green-500 mb-1" /> : <Flame className="w-8 h-8 mb-1 text-amber-400" />}
-                  <div className="text-3xl font-serif font-bold tabular-nums">{formatDuration(elapsed)}</div>
-                  <div className="text-xs text-slate-400 mt-1">elapsed</div>
-                </div>
+        <>
+          <section aria-label="Current fast" className="glass flex flex-wrap items-center justify-center gap-x-10 gap-y-6" style={{ padding: "30px 28px" }}>
+            <Ring pct={pct} size={260} stroke={12} color={isComplete ? "#4fd1a1" : "hsl(var(--ui-accent))"}>
+              <div className="eyebrow">{isComplete ? "Goal reached" : "Elapsed"}</div>
+              <div className="display tnum mt-1" style={{ fontSize: 46 }}>{formatDuration(elapsed)}</div>
+              <div className="sub mt-1" style={{ fontSize: 13, fontWeight: 600 }}>{Math.min(100, Math.round(pct * 100))}%</div>
+            </Ring>
+            <div className="min-w-[220px]">
+              <span className="chip chip-round" style={{ fontSize: 13, padding: "6px 12px", border: "1px solid var(--edge)" }}>
+                <Moon className="w-3.5 h-3.5" style={{ color: "hsl(var(--ui-accent))" }} aria-hidden="true" /> {currentFast.protocol} fast
+              </span>
+              <div className="display tnum mt-3.5" style={{ fontSize: 44 }}>{currentFast.targetHours}<span style={{ fontSize: 22, color: "var(--sub)" }}> hour target</span></div>
+              <div className="sub mt-2" style={{ fontSize: 15 }}>
+                {isComplete ? "You've reached your goal." : `${formatDuration(remainingMs)} to go`} · started {new Date(currentFast.startedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
               </div>
-              <div className="mt-2 space-y-1 text-sm text-slate-400">
-                <div><span className="font-semibold text-white">{currentFast.protocol}</span> protocol · {currentFast.targetHours}h target</div>
-                {isComplete ? <div className="text-green-500 font-semibold">✓ Goal reached!</div> : <div>{formatDuration(remainingMs)} remaining</div>}
-                <div className="text-xs">Started {new Date(currentFast.startedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</div>
+              <div className="mt-5 flex flex-wrap gap-2.5">
+                <Btn variant="good" icon={<CheckCircle className="w-4 h-4" />} onClick={() => handleEnd("completed")}>Complete</Btn>
+                <Btn variant="danger" icon={<XCircle className="w-4 h-4" />} onClick={() => handleEnd("broken")}>Break fast</Btn>
               </div>
-              <div className="flex gap-3 mt-6">
-                <Button size="lg" className="rounded-full px-8 bg-green-600 hover:bg-green-500 text-white" onClick={() => handleEnd("completed")}><CheckCircle className="w-4 h-4 mr-2" /> Complete</Button>
-                <Button size="lg" variant="outline" className="rounded-full border-red-500/40 text-red-400 hover:bg-red-500/10" onClick={() => handleEnd("broken")}><XCircle className="w-4 h-4 mr-2" /> Break</Button>
+            </div>
+          </section>
+          <div className="flex flex-wrap gap-[18px]">
+            {[["Elapsed", `${formatHours(elapsed)}h`], ["Complete", `${Math.min(100, Math.round(pct * 100))}%`], ["Remaining", `${formatHours(remainingMs)}h`]].map(([k, v]) => (
+              <div key={k} className="tile" style={{ flex: "1 1 160px", padding: "20px 22px" }}>
+                <div className="sub" style={{ fontSize: 13, fontWeight: 600 }}>{k}</div>
+                <div className="display tnum mt-2.5" style={{ fontSize: 42 }}>{v}</div>
               </div>
-            </CardContent>
-          </Card>
-          <div className="grid grid-cols-3 gap-3">
-            <Card className="border-white/5" style={{ background: "hsl(var(--bg-h) calc(var(--bg-s) * 0.8947) 10%)" }}><CardContent className="p-4 text-center"><div className="text-2xl font-serif font-bold">{formatHours(elapsed)}h</div><div className="text-xs text-slate-400 mt-1">Elapsed</div></CardContent></Card>
-            <Card className="border-white/5" style={{ background: "hsl(var(--bg-h) calc(var(--bg-s) * 0.8947) 10%)" }}><CardContent className="p-4 text-center"><div className="text-2xl font-serif font-bold">{Math.round(pct * 100)}%</div><div className="text-xs text-slate-400 mt-1">Complete</div></CardContent></Card>
-            <Card className="border-white/5" style={{ background: "hsl(var(--bg-h) calc(var(--bg-s) * 0.8947) 10%)" }}><CardContent className="p-4 text-center"><div className="text-2xl font-serif font-bold">{formatHours(remainingMs)}h</div><div className="text-xs text-slate-400 mt-1">Remaining</div></CardContent></Card>
+            ))}
           </div>
-        </div>
+        </>
       ) : (
-        <Card className="border-amber-500/15" style={{ background: "hsl(var(--bg-h) calc(var(--bg-s) * 0.8947) 10%)" }}>
-          <CardContent className="p-7 space-y-6">
-            <div>
-              <h2 className="font-serif text-xl font-semibold mb-1">Begin a fast</h2>
-              <p className="text-sm text-slate-400">Choose your protocol and begin your fasting window.</p>
-            </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-              {PROTOCOLS.map((p) => (
-                <button key={p.id} onClick={() => setSelectedProtocol(p.id)}
-                  className={cn("rounded-xl border-2 p-4 text-left transition-all duration-200 hover:border-amber-500/40 hover:bg-amber-500/5",
-                    selectedProtocol === p.id ? "border-amber-500 bg-amber-500/10" : "border-white/10 bg-white/[0.02]")}>
-                  <div className="font-serif font-bold text-lg leading-tight">{p.label}</div>
-                  <div className="text-xs text-slate-400 mt-1 leading-snug">{p.desc}</div>
-                </button>
-              ))}
-            </div>
-            {selectedProtocol === "custom" && (
-              <div className="flex items-center gap-3">
-                <label className="text-sm font-medium text-slate-400 whitespace-nowrap">Target hours:</label>
-                <input type="number" min={1} max={72} value={customHours} onChange={(e) => setCustomHours(Number(e.target.value))}
-                  className="w-24 px-3 py-2 rounded-lg border border-white/10 bg-transparent text-center font-bold focus:outline-none focus:ring-2 focus:ring-amber-500/50" />
-              </div>
-            )}
-            <Button size="lg" className="w-full rounded-full text-base font-semibold" onClick={handleStart}><Moon className="w-5 h-5 mr-2" /> Start Fast</Button>
-          </CardContent>
-        </Card>
-      )}
-
-      {history.length > 0 && (
-        <div>
-          <h2 className="font-serif text-xl font-semibold mb-3 flex items-center gap-2"><History className="w-5 h-5 text-slate-400" /> Past Fasts</h2>
-          <div className="space-y-2">
-            {history.slice(0, 8).map((f: FastSession) => {
-              const dur = f.endedAt ? new Date(f.endedAt).getTime() - new Date(f.startedAt).getTime() : 0;
-              const achieved = dur / 3_600_000;
-              const successPct = Math.round((achieved / f.targetHours) * 100);
+        <section aria-label="Begin a fast" className="glass" style={{ padding: "24px 26px" }}>
+          <PanelHead icon={<Moon className="w-4 h-4" strokeWidth={1.8} style={{ color: "hsl(var(--ui-accent))" }} />} title="Begin a fast" note="Choose a protocol" />
+          <div className="mt-5 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+            {PROTOCOLS.map((p) => {
+              const on = selectedProtocol === p.id;
               return (
-                <Card key={f.id} className="border-white/5" style={{ background: "hsl(var(--bg-h) calc(var(--bg-s) * 0.8947) 9%)" }}>
-                  <CardContent className="p-4 flex items-center gap-4">
-                    <div className={cn("w-8 h-8 rounded-full flex items-center justify-center shrink-0", f.status === "completed" ? "bg-green-500/15 text-green-500" : "bg-red-500/15 text-red-400")}>
-                      {f.status === "completed" ? <CheckCircle className="w-4 h-4" /> : <XCircle className="w-4 h-4" />}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="font-medium text-sm">{f.protocol} fast</div>
-                      <div className="text-xs text-slate-400">{new Date(f.startedAt).toLocaleDateString([], { month: "short", day: "numeric" })} · {achieved.toFixed(1)}h of {f.targetHours}h</div>
-                    </div>
-                    <div className={cn("text-sm font-bold shrink-0", f.status === "completed" ? "text-green-500" : "text-slate-400")}>{Math.min(successPct, 100)}%</div>
-                  </CardContent>
-                </Card>
+                <button key={p.id} type="button" aria-pressed={on} onClick={() => setSelectedProtocol(p.id)}
+                  className="well text-left transition-colors hover:bg-white/5" style={{ padding: "16px 16px", borderRadius: 16, borderColor: on ? "hsl(var(--ui-accent))" : undefined, background: on ? "hsl(var(--ui-accent) / 0.1)" : undefined }}>
+                  <div className="display" style={{ fontSize: 30 }}>{p.label}</div>
+                  <div className="sub mt-1.5" style={{ fontSize: 13, lineHeight: 1.35 }}>{p.desc}</div>
+                </button>
               );
             })}
           </div>
-        </div>
+          <div className="mt-5 flex flex-wrap items-end justify-between gap-4">
+            {selectedProtocol === "custom" ? (
+              <div>
+                <label htmlFor="fast-hours" className="field-label">Target hours</label>
+                <input id="fast-hours" type="number" min={1} max={72} className="field tnum" style={{ width: 120 }} value={customHours} onChange={(e) => setCustomHours(Number(e.target.value))} />
+              </div>
+            ) : <span />}
+            <Btn variant="primary" icon={<Moon className="w-4 h-4" />} onClick={handleStart}>Start fast</Btn>
+          </div>
+        </section>
+      )}
+
+      {history.length > 0 && (
+        <section aria-label="Past fasts" className="glass" style={{ padding: "22px 24px" }}>
+          <PanelHead icon={<History className="w-4 h-4" strokeWidth={1.8} style={{ color: "var(--label)" }} />} title="Past fasts" />
+          <div className="mt-2">
+            {history.slice(0, 8).map((f: FastSession, i: number, arr: FastSession[]) => {
+              const dur = f.endedAt ? new Date(f.endedAt).getTime() - new Date(f.startedAt).getTime() : 0;
+              const achieved = dur / 3_600_000;
+              const ok = f.status === "completed";
+              return (
+                <div key={f.id} className={cx("flex items-center gap-3.5 py-3", i < arr.length - 1 && "divider")}>
+                  <span aria-hidden="true" className="flex items-center justify-center shrink-0" style={{ width: 32, height: 32, borderRadius: 10, background: ok ? "rgba(79,209,161,0.14)" : "rgba(255,138,122,0.12)", color: ok ? "#8ce6c4" : "#ffb3a8" }}>
+                    {ok ? <Check className="w-4 h-4" /> : <X className="w-4 h-4" />}
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <div style={{ fontSize: 15, fontWeight: 600 }}>{f.protocol} fast <span className="sub" style={{ fontWeight: 400 }}>· {ok ? "completed" : "broken"}</span></div>
+                    <div className="sub" style={{ fontSize: 13 }}>{new Date(f.startedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })} · {achieved.toFixed(1)}h of {f.targetHours}h</div>
+                  </div>
+                  <div className="display tnum shrink-0" style={{ fontSize: 26, color: ok ? "var(--ink)" : "var(--sub)" }}>{Math.min(100, Math.round((achieved / f.targetHours) * 100))}%</div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
       )}
     </div>
   );
 }
 
-/* ============================== Journal Page ============================== */
-
-const MOOD_EMOJI = ["😞", "😕", "😐", "🙂", "😄"];
+/* ============================== Journal ============================== */
 
 function JournalPage({ state, setState }: { state: any; setState: any }) {
-  const today = todayStr();
-  const todayEntry: JournalEntry | undefined = state.journalEntries.find((e: JournalEntry) => e.date === today);
-
-  const [text, setText] = useState(todayEntry?.text ?? "");
-  const [mood, setMood] = useState<number | null>(todayEntry?.mood ?? null);
+  const { today, entry, save } = useTodayJournal(state, setState);
+  const [text, setText] = useState(entry?.text ?? "");
+  const [mood, setMood] = useState<number | null>(entry?.mood ?? null);
   const [savedFlash, setSavedFlash] = useState(false);
   const saveTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    setText(todayEntry?.text ?? "");
-    setMood(todayEntry?.mood ?? null);
+    setText(entry?.text ?? "");
+    setMood(entry?.mood ?? null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [today]);
 
-  const persist = useCallback((nextText: string, nextMood: number | null) => {
-    setState((s: any) => {
-      const existing = s.journalEntries.find((e: JournalEntry) => e.date === today);
-      const entry: JournalEntry = {
-        id: existing?.id ?? nextId(),
-        date: today,
-        text: nextText,
-        mood: nextMood,
-        updatedAt: new Date().toISOString(),
-      };
-      const journalEntries = existing
-        ? s.journalEntries.map((e: JournalEntry) => (e.date === today ? entry : e))
-        : [...s.journalEntries, entry];
-
-      // Mirror mood into health logs so it ties into the Vitality mood metric.
-      let healthLogs = s.healthLogs;
-      if (nextMood !== null) {
-        const newLog: HealthLog = { id: nextId(), type: "mood", value: nextMood, unit: "mood", loggedAt: new Date().toISOString() };
-        healthLogs = [...s.healthLogs, newLog];
-      }
-      return { ...s, journalEntries, healthLogs };
-    });
-    setSavedFlash(true);
-    setTimeout(() => setSavedFlash(false), 1500);
-  }, [setState, today]);
-
+  const flash = () => { setSavedFlash(true); setTimeout(() => setSavedFlash(false), 1500); };
   const handleTextChange = (val: string) => {
     setText(val);
     if (saveTimeout.current) clearTimeout(saveTimeout.current);
-    saveTimeout.current = setTimeout(() => persist(val, mood), 900);
+    saveTimeout.current = setTimeout(() => { save(val, mood, false); flash(); }, 900);
   };
   const handleMoodSelect = (val: number) => {
     const next = mood === val ? null : val;
     setMood(next);
-    persist(text, next);
+    save(text, next, true);
+    flash();
   };
 
   const pastEntries = state.journalEntries
@@ -2348,77 +2314,46 @@ function JournalPage({ state, setState }: { state: any; setState: any }) {
     .sort((a: JournalEntry, b: JournalEntry) => b.date.localeCompare(a.date));
 
   return (
-    <div className="space-y-8 animate-in">
-      <div>
-        <h1 className="text-4xl font-serif font-bold flex items-center gap-2" style={{ color: "hsl(var(--accent-h) calc(var(--accent-s) * 0.7955) 70%)", textShadow: "0 0 40px hsl(var(--accent-h) calc(var(--accent-s) * 0.7955) 60% / 0.2)" }}>
-          <Pencil className="w-7 h-7" /> Journal
-        </h1>
-        <p className="text-slate-400 italic mt-1">A page for today's thoughts.</p>
-      </div>
+    <div className="flex flex-col gap-[18px] animate-in">
+      <PageHeader eyebrow="Body & mind" title="Journal" sub="A page for today's thoughts." />
 
-      <Card className="border-amber-500/15 relative overflow-hidden" style={{ background: "linear-gradient(135deg, hsl(var(--bg-h) var(--bg-s) 9%), hsl(var(--accent2-h) calc(var(--accent2-s) * 0.5) 10%))" }}>
-        <div className="absolute top-0 left-0 right-0 h-px" style={{ background: "linear-gradient(90deg, transparent, hsl(var(--accent-h) var(--accent-s) 52% / 0.35), transparent)" }} />
-        <CardContent className="p-6 space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="font-serif text-lg font-semibold">
-              {new Date(today + "T00:00:00").toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" })}
-            </h2>
-            {savedFlash && <span className="text-xs text-green-400 flex items-center gap-1"><Check className="w-3 h-3" /> Saved</span>}
-          </div>
-
-          <div>
-            <p className="text-xs text-slate-400 mb-2 uppercase tracking-wide">How are you feeling?</p>
-            <div className="flex gap-2">
-              {MOOD_EMOJI.map((emoji, i) => {
-                const val = i + 1;
-                const selected = mood === val;
-                return (
-                  <button key={val} onClick={() => handleMoodSelect(val)}
-                    className={cn("w-10 h-10 rounded-full text-lg flex items-center justify-center transition-all", selected ? "scale-125 ring-2 ring-amber-400/50 bg-amber-500/10" : "hover:scale-110 hover:bg-white/5 opacity-70")}>
-                    {emoji}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          <textarea
-            value={text}
-            onChange={(e) => handleTextChange(e.target.value)}
-            placeholder="What happened today? What's on your mind?"
-            rows={8}
-            className="w-full rounded-lg border bg-transparent px-3 py-2.5 text-sm outline-none resize-none placeholder:text-slate-500"
-            style={{ borderColor: "hsl(var(--bg-h) calc(var(--bg-s) * 0.6579) 20%)", color: "inherit", fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" }}
-          />
-          <p className="text-xs text-slate-500 italic">Saves automatically as you write.</p>
-        </CardContent>
-      </Card>
+      <section aria-label="Today's entry" className="glass flex flex-col gap-4" style={{ padding: "26px 28px" }}>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="display m-0" style={{ fontSize: 34 }}>{formatLongDate(new Date(today + "T12:00:00"))}</h2>
+          <span className="sub" style={{ fontSize: 13, color: savedFlash ? "#8ce6c4" : undefined }} role="status">{savedFlash ? "Saved" : "Saves as you write"}</span>
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="sub" style={{ fontSize: 14 }}>How are you feeling?</span>
+          <MoodPicker value={mood} onChange={handleMoodSelect} />
+        </div>
+        <label htmlFor="journal-text" className="sr-only-x">Today's journal entry</label>
+        <textarea id="journal-text" className="field" rows={10} value={text} onChange={(e) => handleTextChange(e.target.value)}
+          placeholder="What happened today? What's on your mind?" />
+      </section>
 
       {pastEntries.length > 0 && (
-        <div>
-          <ArcaneDivider className="mb-3 text-slate-500 text-[10px]"><span className="text-amber-400/50 text-[8px]">✦</span> Past Entries</ArcaneDivider>
-          <div className="space-y-2">
-            {pastEntries.slice(0, 14).map((entry: JournalEntry) => (
-              <Card key={entry.id} className="border-white/5" style={{ background: "hsl(var(--bg-h) calc(var(--bg-s) * 0.8947) 10%)" }}>
-                <CardContent className="p-4">
-                  <div className="flex items-center justify-between mb-1.5">
-                    <span className="text-sm font-medium">
-                      {new Date(entry.date + "T00:00:00").toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })}
-                    </span>
-                    {entry.mood && <span className="text-base">{MOOD_EMOJI[entry.mood - 1]}</span>}
-                  </div>
-                  <p className="text-sm text-slate-400 line-clamp-3 whitespace-pre-wrap">{entry.text || <span className="italic text-slate-600">No notes — mood only.</span>}</p>
-                </CardContent>
-              </Card>
+        <section aria-label="Past entries" className="glass" style={{ padding: "22px 24px" }}>
+          <PanelHead icon={<NotebookPen className="w-4 h-4" strokeWidth={1.8} style={{ color: "#f4c38a" }} />} title="Past entries" note={`${pastEntries.length}`} />
+          <div className="mt-2">
+            {pastEntries.slice(0, 14).map((e: JournalEntry, i: number, arr: JournalEntry[]) => (
+              <article key={e.id} className={cx("py-3.5", i < arr.length - 1 && "divider")}>
+                <div className="flex items-center justify-between gap-3">
+                  <h3 className="m-0" style={{ fontSize: 15, fontWeight: 700 }}>{new Date(e.date + "T12:00:00").toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}</h3>
+                  {e.mood && <span title={`Mood ${e.mood} of 5, ${MOOD_LABELS[e.mood - 1]}`}><MoodFace level={e.mood} selected size={20} /></span>}
+                </div>
+                <p className="sub mt-1.5 mb-0 whitespace-pre-wrap line-clamp-3" style={{ fontSize: 14, lineHeight: 1.55 }}>
+                  {e.text || <span className="label">No notes, just a mood.</span>}
+                </p>
+              </article>
             ))}
           </div>
-        </div>
+        </section>
       )}
     </div>
   );
 }
 
-/* ============================== Lofi Player ============================== */
+/* ============================== Lofi ============================== */
 
 const LOFI_STATIONS = [
   { id: "X4VbdwhkE10", label: "lofi hip hop radio — beats to relax/study to", by: "Lofi Girl" },
@@ -2432,67 +2367,51 @@ function LofiPlayer({ compact = false }: { compact?: boolean }) {
   const [stationIdx, setStationIdx] = useState(0);
   const [playing, setPlaying] = useState(false);
   const station = LOFI_STATIONS[stationIdx];
-  // mute=0 is blocked by most browsers' autoplay policy unless muted; start muted, user unmutes via the player's own controls.
+  // Browsers block sound on autoplay, so the stream starts muted; unmute with the player's own control.
   const src = `https://www.youtube-nocookie.com/embed/${station.id}?autoplay=1&mute=1`;
   const watchUrl = `https://www.youtube.com/watch?v=${station.id}`;
 
+  const body = (
+    <div className={cx("flex flex-col gap-3", compact && "flex-1 min-h-0 scroll-y")}>
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <div className="truncate" style={{ fontSize: compact ? 14 : 16, fontWeight: 700 }}>{station.label.split(" — ")[0]}</div>
+          <div className="sub truncate" style={{ fontSize: 13 }}>{station.label.split(" — ")[1] ?? ""} · {station.by}</div>
+        </div>
+        {playing
+          ? <Btn variant="glass" size={compact ? "sm" : undefined} icon={<Pause className="w-4 h-4" />} onClick={() => setPlaying(false)}>Stop</Btn>
+          : <Btn variant="primary" size={compact ? "sm" : undefined} icon={<Play className="w-3.5 h-3.5" fill="currentColor" />} onClick={() => setPlaying(true)}>Play</Btn>}
+      </div>
+      {playing && (
+        <div className="overflow-hidden" style={{ aspectRatio: "16 / 9", borderRadius: 16, border: "1px solid var(--edge)" }}>
+          <iframe key={station.id} src={src} title={station.label} allow="autoplay; encrypted-media" allowFullScreen className="w-full h-full" style={{ border: 0 }} />
+        </div>
+      )}
+      <div className="flex flex-wrap gap-2" role="group" aria-label="Stations">
+        {LOFI_STATIONS.map((s, i) => (
+          <button key={s.id} type="button" className="seg" style={compact ? { minHeight: 36, fontSize: 12, padding: "0 10px" } : { fontSize: 13 }}
+            aria-pressed={i === stationIdx} onClick={() => setStationIdx(i)}>{s.label.split(" — ")[0]}</button>
+        ))}
+      </div>
+      {!compact && (
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="sub m-0" style={{ fontSize: 13 }}>Streams start muted; unmute in the player. If one won't load, open it on YouTube.</p>
+          <a href={watchUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: 13, color: "hsl(var(--ui-accent2))", fontWeight: 600 }}>Open in YouTube ↗</a>
+        </div>
+      )}
+    </div>
+  );
+
+  if (compact) return body;
   return (
-    <Card className={cn("border-violet-400/15 relative overflow-hidden", compact && "h-full")} style={{ background: "linear-gradient(135deg, hsl(var(--bg-h) var(--bg-s) 9%), hsl(var(--accent2-h) calc(var(--accent2-s) * 0.5) 10%))" }}>
-      <div className="absolute top-0 left-0 right-0 h-px" style={{ background: "linear-gradient(90deg, transparent, hsl(var(--accent2-h) var(--accent2-s) 60% / 0.35), transparent)" }} />
-      <CardContent className={cn("space-y-3 overflow-y-auto", compact ? "p-3 h-full" : "p-5")}>
-        <div className="flex items-center justify-between gap-2">
-          <h3 className={cn("font-serif font-semibold flex items-center gap-2", compact ? "text-sm" : "text-lg")}>
-            <Music className="w-4 h-4 text-violet-300" /> Lofi Study Stream
-          </h3>
-          {!playing ? (
-            <Button size="sm" onClick={() => setPlaying(true)} style={{ background: "hsl(var(--accent2-h) calc(var(--accent2-s) * 0.9167) 50%)", color: "white" }}>
-              <Play className="w-3.5 h-3.5 mr-1.5" /> Play
-            </Button>
-          ) : (
-            <Button size="sm" variant="secondary" onClick={() => setPlaying(false)}>
-              <Pause className="w-3.5 h-3.5 mr-1.5" /> Stop
-            </Button>
-          )}
-        </div>
-
-        {playing && (
-          <div className="rounded-lg overflow-hidden border border-white/10" style={{ aspectRatio: "16/9" }}>
-            <iframe
-              key={station.id}
-              src={src}
-              title={station.label}
-              allow="autoplay; encrypted-media"
-              allowFullScreen
-              className="w-full h-full"
-              style={{ border: 0 }}
-            />
-          </div>
-        )}
-
-        <div className="flex flex-wrap gap-1.5">
-          {LOFI_STATIONS.map((s, i) => (
-            <button key={s.id} onClick={() => setStationIdx(i)}
-              className={cn("px-2.5 py-1 rounded-full border text-[11px] transition-colors", i === stationIdx ? "border-violet-400/50 bg-violet-500/15 text-violet-300" : "border-white/10 text-slate-400 hover:border-violet-400/30")}>
-              {s.label.split(" — ")[0]}
-            </button>
-          ))}
-        </div>
-        <div className="flex items-center justify-between gap-2">
-          <p className="text-[11px] text-slate-500 italic">Streamed live via YouTube · curated by {station.by}</p>
-          <a href={watchUrl} target="_blank" rel="noopener noreferrer" className="text-[11px] text-violet-300 hover:text-violet-200 underline shrink-0">
-            Open in YouTube ↗
-          </a>
-        </div>
-        <p className="text-[10px] text-slate-600 italic">
-          Starts muted (browser autoplay policy) — use the player's own volume control to unmute. If the embed doesn't
-          load, use the YouTube link above.
-        </p>
-      </CardContent>
-    </Card>
+    <div className="flex flex-col gap-[18px] animate-in">
+      <PageHeader eyebrow="Leisure" title="Lofi" sub="Live streams to study to." />
+      <section aria-label="Lofi player" className="glass" style={{ padding: "24px 26px" }}>{body}</section>
+    </div>
   );
 }
 
-/* ============================== Ascent (RPG) Page ============================== */
+/* ============================== Ascent (RPG) ============================== */
 
 /** Chunky pixel-block sprite renderer. Takes a small grid of color indices and renders as squares. */
 function PixelSprite({ grid, palette, pixelSize = 6, className }: { grid: number[][]; palette: Record<number, string>; pixelSize?: number; className?: string }) {
@@ -2593,20 +2512,20 @@ const ENEMY_PALETTES: Record<string, Record<number, string>> = {
 const GEAR_TIER_COLOR: Record<GearTier, string> = { common: "#94a3b8", rare: "#60a5fa", epic: "#c084fc" };
 
 function GearSlotCard({ slot, gear, onUnequip }: { slot: GearSlot; gear: Gear | null; onUnequip?: () => void }) {
-  const slotLabel = slot === "weapon" ? "Weapon" : slot === "armor" ? "Armor" : "Trinket";
+  const slotLabel = slot === "weapon" ? "Weapon" : slot === "armor" ? "Armour" : "Trinket";
   return (
-    <div className="rounded-lg border p-2.5" style={{ borderColor: gear ? `${GEAR_TIER_COLOR[gear.tier]}40` : "hsl(var(--bg-h) calc(var(--bg-s) * 0.6579) 18%)", background: "hsl(var(--bg-h) calc(var(--bg-s) * 0.8947) 9%)" }}>
-      <div className="text-[10px] uppercase tracking-wide text-slate-500 mb-1">{slotLabel}</div>
+    <div className="well" style={{ padding: "12px 14px", borderColor: gear ? `${GEAR_TIER_COLOR[gear.tier]}55` : undefined }}>
+      <div className="eyebrow" style={{ fontSize: 10 }}>{slotLabel}</div>
       {gear ? (
-        <div className="flex items-center justify-between gap-2">
+        <div className="mt-1.5 flex items-center justify-between gap-2">
           <div className="min-w-0">
-            <div className="text-xs font-semibold truncate" style={{ color: GEAR_TIER_COLOR[gear.tier] }}>{gear.name}</div>
-            <div className="text-[10px] text-slate-500">+{gear.atk} ATK · +{gear.def} DEF · +{gear.hp} HP</div>
+            <div className="truncate" style={{ fontSize: 14, fontWeight: 700, color: GEAR_TIER_COLOR[gear.tier] }}>{gear.name}</div>
+            <div className="sub" style={{ fontSize: 12 }}>+{gear.atk} ATK · +{gear.def} DEF · +{gear.hp} HP</div>
           </div>
-          {onUnequip && <button onClick={onUnequip} className="text-slate-600 hover:text-red-400 shrink-0"><X className="w-3 h-3" /></button>}
+          {onUnequip && <Btn variant="quiet" size="sm" aria-label={`Unequip ${gear.name}`} icon={<X className="w-4 h-4" />} onClick={onUnequip} />}
         </div>
       ) : (
-        <div className="text-xs text-slate-600 italic">Empty</div>
+        <div className="label mt-1.5" style={{ fontSize: 13 }}>Empty</div>
       )}
     </div>
   );
@@ -2634,7 +2553,7 @@ function AscentPage({ state, setState }: { state: any; setState: any }) {
   const canAfford = rpg.essenceBalance >= battleCost;
 
   useEffect(() => {
-    logEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    logEndRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }, [battleLog]);
 
   const battleTokenRef = useRef(0);
@@ -2645,18 +2564,16 @@ function AscentPage({ state, setState }: { state: any; setState: any }) {
     setBattleResult(null);
     setBattleLog([]);
 
-    const { won, log, remainingHp } = simulateBattle(stats, familiarBonus, enemy, useSpecial && activeStreakCount > 0);
+    const { won, log } = simulateBattle(stats, familiarBonus, enemy, useSpecial && activeStreakCount > 0);
     const essenceGained = won ? 20 + enemy.tier * 12 : 0;
     const gearDropped = won && Math.random() < 0.6 ? rollGear(enemy.tier) : undefined;
 
     // Token guards against overlapping reveal loops if a battle is somehow triggered twice.
     const myToken = ++battleTokenRef.current;
-
-    // Reveal log lines progressively for a sense of motion.
     let i = 0;
     const reveal = () => {
-      if (battleTokenRef.current !== myToken) return; // a newer battle started; abandon this reveal
-      if (i >= log.length) return; // safety: nothing left to reveal
+      if (battleTokenRef.current !== myToken) return;
+      if (i >= log.length) return;
       setBattleLog((prev) => [...prev, log[i]]);
       i++;
       if (i < log.length) {
@@ -2665,14 +2582,8 @@ function AscentPage({ state, setState }: { state: any; setState: any }) {
         setState((s: any) => {
           const newInventory = gearDropped ? [...s.rpg.inventory, gearDropped] : s.rpg.inventory;
           const record: BattleRecord = {
-            id: nextId(),
-            enemyName: enemy.name,
-            enemyTier: enemy.tier,
-            won,
-            essenceSpent: battleCost,
-            essenceGained,
-            gearDropped: gearDropped?.name,
-            at: new Date().toISOString(),
+            id: nextId(), enemyName: enemy.name, enemyTier: enemy.tier, won,
+            essenceSpent: battleCost, essenceGained, gearDropped: gearDropped?.name, at: new Date().toISOString(),
           };
           return {
             ...s,
@@ -2691,210 +2602,283 @@ function AscentPage({ state, setState }: { state: any; setState: any }) {
     reveal();
   };
 
-  const handleEquip = (gear: Gear) => {
-    setState((s: any) => ({ ...s, rpg: { ...s.rpg, equipped: { ...s.rpg.equipped, [gear.slot]: gear } } }));
-  };
-  const handleUnequip = (slot: GearSlot) => {
-    setState((s: any) => ({ ...s, rpg: { ...s.rpg, equipped: { ...s.rpg.equipped, [slot]: null } } }));
-  };
+  const handleEquip = (gear: Gear) => setState((s: any) => ({ ...s, rpg: { ...s.rpg, equipped: { ...s.rpg.equipped, [gear.slot]: gear } } }));
+  const handleUnequip = (slot: GearSlot) => setState((s: any) => ({ ...s, rpg: { ...s.rpg, equipped: { ...s.rpg.equipped, [slot]: null } } }));
+
+  const statList: [string, number, string][] = [["HP", stats.hp, "#4fd1a1"], ["ATK", stats.atk, "#ff8a7a"], ["DEF", stats.def, "#7cc8ff"], ["SPD", stats.speed, "#f2c46b"]];
 
   return (
-    <div className="space-y-8 animate-in">
-      <div>
-        <h1 className="text-4xl font-serif font-bold flex items-center gap-2" style={{ color: "hsl(var(--accent2-h) var(--accent2-s) 72%)", textShadow: "0 0 40px hsl(var(--accent2-h) var(--accent2-s) 60% / 0.25)" }}>
-          <Zap className="w-7 h-7" /> The Ascent
-        </h1>
-        <p className="text-slate-400 italic mt-1">Your deeds in the waking world echo here.</p>
-      </div>
+    <div className="flex flex-col gap-[18px] animate-in">
+      <PageHeader eyebrow="Leisure" title="The Ascent" sub="Your deeds in the waking world echo here." />
 
-      {/* Character + Essence panel */}
-      <Card className="relative overflow-hidden border-violet-400/20" style={{ background: "linear-gradient(135deg, hsl(var(--bg-h) var(--bg-s) 9%), hsl(var(--accent2-h) calc(var(--accent2-s) * 0.5) 11%), hsl(var(--bg-h) var(--bg-s) 9%))" }}>
-        <div className="absolute top-0 left-0 right-0 h-px pointer-events-none" style={{ background: "linear-gradient(90deg, transparent, hsl(var(--accent2-h) var(--accent2-s) 60% / 0.4), transparent)" }} />
-        <CardContent className="p-6 relative">
-          <div className="flex flex-wrap items-start gap-6">
-            <div className="flex items-center gap-4">
-              <div className="w-20 h-20 rounded-xl flex items-center justify-center shrink-0" style={{ background: "hsl(var(--accent2-h) calc(var(--accent2-s) * 0.8333) 16%)", border: "1px solid hsl(var(--accent2-h) var(--accent2-s) 50% / 0.3)" }}>
-                <PixelSprite grid={PLAYER_SPRITE} palette={PLAYER_PALETTE} pixelSize={8} />
-              </div>
-              <div>
-                <div className="text-xs uppercase tracking-[0.15em] text-slate-400 font-semibold mb-0.5">Level {rpg.level} Adventurer</div>
-                <div className="text-2xl font-serif font-bold text-violet-300">{rpg.lifetimeEssence.toLocaleString()} <span className="text-base text-violet-300/60">Lifetime Essence</span></div>
-                <div className="text-sm text-amber-300 font-medium mt-0.5">{rpg.essenceBalance.toLocaleString()} Essence available</div>
-              </div>
+      <section aria-label="Your character" className="glass" style={{ padding: "26px 28px" }}>
+        <div className="flex flex-wrap items-center gap-x-8 gap-y-5">
+          <div className="flex items-center gap-5">
+            <div className="flex items-center justify-center shrink-0" style={{ width: 96, height: 96, borderRadius: 24, background: "radial-gradient(circle at 50% 45%, hsl(var(--ui-accent2) / 0.45), hsl(var(--ui-accent2) / 0.08) 70%)", border: "1px solid rgba(255,255,255,0.1)" }}>
+              <PixelSprite grid={PLAYER_SPRITE} palette={PLAYER_PALETTE} pixelSize={9} />
             </div>
-
-            <div className="flex-1 min-w-[180px]">
-              <div className="flex justify-between text-xs text-slate-400 mb-1">
-                <span>Level progress</span><span>{essenceIntoLevel} / {ESSENCE_PER_LEVEL}</span>
-              </div>
-              <div className="relative h-1.5 rounded-full bg-violet-500/10 overflow-hidden">
-                <div className="absolute top-0 left-0 h-full rounded-full" style={{ width: `${essenceIntoLevel}%`, background: "linear-gradient(90deg, hsl(var(--accent2-h) var(--accent2-s) 55%), hsl(var(--accent-h) var(--accent-s) 52%))" }} />
-              </div>
-              <div className="grid grid-cols-4 gap-2 mt-4">
-                <StatPip label="HP" value={stats.hp} color="#34d399" />
-                <StatPip label="ATK" value={stats.atk} color="#f87171" />
-                <StatPip label="DEF" value={stats.def} color="#60a5fa" />
-                <StatPip label="SPD" value={stats.speed} color="#fbbf24" />
-              </div>
+            <div>
+              <span className="chip chip-round" style={{ border: "1px solid var(--edge)" }}>
+                <span aria-hidden="true" style={{ width: 7, height: 7, borderRadius: "50%", background: "hsl(var(--ui-accent2))" }} /> Level {rpg.level} adventurer
+              </span>
+              <div className="display tnum mt-2.5" style={{ fontSize: 48 }}>{rpg.essenceBalance.toLocaleString()} <span style={{ fontSize: 22, color: "var(--sub)" }}>Essence to spend</span></div>
+              <div className="sub mt-1" style={{ fontSize: 14 }}>{rpg.lifetimeEssence.toLocaleString()} earned in all</div>
             </div>
           </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 mt-5">
-            <GearSlotCard slot="weapon" gear={rpg.equipped.weapon} onUnequip={() => handleUnequip("weapon")} />
-            <GearSlotCard slot="armor" gear={rpg.equipped.armor} onUnequip={() => handleUnequip("armor")} />
-            <GearSlotCard slot="trinket" gear={rpg.equipped.trinket} onUnequip={() => handleUnequip("trinket")} />
+          <div className="flex-1 min-w-[240px]">
+            <div className="flex justify-between sub" style={{ fontSize: 13 }}><span>Level progress</span><span className="tnum">{essenceIntoLevel} / {ESSENCE_PER_LEVEL}</span></div>
+            <div className="track mt-2"><div className="fill fill-2" style={{ width: `${essenceIntoLevel}%` }} /></div>
+            <div className="mt-4 grid grid-cols-4 gap-2">
+              {statList.map(([label, value, color]) => (
+                <div key={label} className="well text-center" style={{ padding: "10px 4px" }}>
+                  <div className="display tnum" style={{ fontSize: 28, color }}>{value}</div>
+                  <div className="eyebrow" style={{ fontSize: 10 }}>{label}</div>
+                </div>
+              ))}
+            </div>
           </div>
+        </div>
+        <div className="mt-5 grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+          <GearSlotCard slot="weapon" gear={rpg.equipped.weapon} onUnequip={() => handleUnequip("weapon")} />
+          <GearSlotCard slot="armor" gear={rpg.equipped.armor} onUnequip={() => handleUnequip("armor")} />
+          <GearSlotCard slot="trinket" gear={rpg.equipped.trinket} onUnequip={() => handleUnequip("trinket")} />
+        </div>
+        <p className="sub mt-4 mb-0" style={{ fontSize: 13 }}>
+          Essence flows in as you complete rituals, quests and focus sessions, and your level rises on its own. Spend it below to challenge enemies for gear and more Essence.
+        </p>
+      </section>
 
-          <p className="text-[11px] text-slate-500 italic mt-4">
-            Essence flows in passively as you complete habits, quests, and focus sessions — your level rises on its own.
-            Spend banked Essence below to challenge enemies for gear and bonus Essence.
-          </p>
-        </CardContent>
-      </Card>
-
-      {/* Inventory */}
       {rpg.inventory.length > 0 && (
-        <div>
-          <ArcaneDivider className="mb-3 text-slate-500 text-[10px]"><span className="text-violet-300/50 text-[8px]">⚔</span> Inventory</ArcaneDivider>
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2.5">
+        <section aria-label="Inventory" className="glass" style={{ padding: "22px 24px" }}>
+          <PanelHead icon={<Star className="w-4 h-4" strokeWidth={1.8} style={{ color: "hsl(var(--ui-accent2))" }} />} title="Inventory" note="Select an item to equip it" />
+          <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5">
             {rpg.inventory.map((g) => (
-              <button key={g.id} onClick={() => handleEquip(g)} className="rounded-lg border p-2.5 text-left hover:bg-white/5 transition-colors" style={{ borderColor: `${GEAR_TIER_COLOR[g.tier]}30`, background: "hsl(var(--bg-h) calc(var(--bg-s) * 0.8947) 10%)" }}>
-                <div className="text-xs font-semibold truncate" style={{ color: GEAR_TIER_COLOR[g.tier] }}>{g.name}</div>
-                <div className="text-[10px] text-slate-500 capitalize">{g.slot} · {g.tier}</div>
-                <div className="text-[10px] text-slate-500 mt-1">+{g.atk} ATK · +{g.def} DEF · +{g.hp} HP</div>
+              <button key={g.id} type="button" onClick={() => handleEquip(g)} className="well text-left transition-colors hover:bg-white/5" style={{ padding: "12px 14px", borderColor: `${GEAR_TIER_COLOR[g.tier]}44` }}>
+                <div className="truncate" style={{ fontSize: 14, fontWeight: 700, color: GEAR_TIER_COLOR[g.tier] }}>{g.name}</div>
+                <div className="sub capitalize" style={{ fontSize: 12 }}>{g.slot === "armor" ? "armour" : g.slot} · {g.tier}</div>
+                <div className="label mt-1" style={{ fontSize: 12 }}>+{g.atk} ATK · +{g.def} DEF · +{g.hp} HP</div>
               </button>
             ))}
           </div>
-        </div>
+        </section>
       )}
 
-      {/* Battle arena */}
-      <div>
-        <ArcaneDivider className="mb-3 text-slate-500 text-[10px]"><Flame className="w-3 h-3 text-amber-400" /> Battle Arena</ArcaneDivider>
-        <Card className="border-white/5 overflow-hidden" style={{ background: "hsl(var(--bg-h) calc(var(--bg-s) * 0.8947) 9%)" }}>
-          <CardContent className="p-5 space-y-4">
-            <div className="flex flex-wrap gap-2">
-              {availableEnemies.map((e, i) => (
-                <button key={e.name} onClick={() => { setSelectedEnemyIdx(i); setBattleResult(null); setBattleLog([]); }}
-                  disabled={battling}
-                  className={cn("px-3 py-1.5 rounded-full border text-xs font-medium transition-colors flex items-center gap-1.5", i === selectedEnemyIdx ? "border-amber-500/50 bg-amber-500/12 text-amber-300" : "border-white/10 text-slate-400 hover:border-amber-500/30")}>
-                  <span>{e.emoji}</span> {e.name} <span className="text-[10px] opacity-60">T{e.tier}</span>
-                </button>
-              ))}
+      <section aria-label="Battle arena" className="glass" style={{ padding: "22px 24px" }}>
+        <PanelHead icon={<Zap className="w-4 h-4" strokeWidth={1.8} style={{ color: "hsl(var(--ui-accent))" }} />} title="Battle arena" note={`${rpg.essenceBalance} Essence`} />
+        <div className="mt-4 flex flex-wrap gap-2" role="group" aria-label="Choose an enemy">
+          {availableEnemies.map((e, i) => (
+            <button key={e.name} type="button" className="seg flex items-center gap-2" aria-pressed={i === selectedEnemyIdx} disabled={battling}
+              onClick={() => { setSelectedEnemyIdx(i); setBattleResult(null); setBattleLog([]); }}>
+              <PixelSprite grid={ENEMY_SPRITES[e.name]} palette={ENEMY_PALETTES[e.name]} pixelSize={2} /> {e.name} <span className="label" style={{ fontSize: 11 }}>T{e.tier}</span>
+            </button>
+          ))}
+        </div>
+        {maxUnlockedTier < 5 && <p className="sub mt-2.5 mb-0" style={{ fontSize: 13 }}>Stronger enemies unlock as you level up (next tier at level {maxUnlockedTier * 3 + 1}).</p>}
+
+        <div className="flex items-center justify-center gap-10 py-6">
+          <div className="flex flex-col items-center gap-2">
+            <div className="flex items-center justify-center" style={{ width: 76, height: 76, borderRadius: 20, background: "hsl(var(--ui-accent2) / 0.14)", border: "1px solid hsl(var(--ui-accent2) / 0.3)" }}>
+              <PixelSprite grid={PLAYER_SPRITE} palette={PLAYER_PALETTE} pixelSize={7} />
             </div>
-            {maxUnlockedTier < 5 && (
-              <p className="text-[11px] text-slate-500 italic">Higher-tier enemies unlock as you level up (reach level {maxUnlockedTier * 3 + 1} for the next tier).</p>
-            )}
-
-            <div className="flex items-center justify-center gap-10 py-4">
-              <div className="flex flex-col items-center gap-2">
-                <div className="w-16 h-16 rounded-lg flex items-center justify-center" style={{ background: "hsl(var(--accent2-h) calc(var(--accent2-s) * 0.8333) 14%)", border: "1px solid hsl(var(--accent2-h) var(--accent2-s) 50% / 0.25)" }}>
-                  <PixelSprite grid={PLAYER_SPRITE} palette={PLAYER_PALETTE} pixelSize={6} />
-                </div>
-                <span className="text-[10px] text-slate-400">You + {state.familiar.name}</span>
-              </div>
-              <div className="text-2xl text-slate-600">VS</div>
-              <div className="flex flex-col items-center gap-2">
-                <div className="w-16 h-16 rounded-lg flex items-center justify-center" style={{ background: "hsl(0 40% 12%)", border: "1px solid hsl(0 50% 40% / 0.25)" }}>
-                  <PixelSprite grid={ENEMY_SPRITES[enemy.name]} palette={ENEMY_PALETTES[enemy.name]} pixelSize={6} />
-                </div>
-                <span className="text-[10px] text-slate-400">{enemy.name}</span>
-              </div>
+            <span className="sub" style={{ fontSize: 12 }}>You + {state.familiar.name}</span>
+          </div>
+          <div className="display muted" style={{ fontSize: 36 }}>vs</div>
+          <div className="flex flex-col items-center gap-2">
+            <div className="flex items-center justify-center" style={{ width: 76, height: 76, borderRadius: 20, background: "rgba(255,138,122,0.1)", border: "1px solid rgba(255,138,122,0.3)" }}>
+              <PixelSprite grid={ENEMY_SPRITES[enemy.name]} palette={ENEMY_PALETTES[enemy.name]} pixelSize={7} />
             </div>
-
-            {activeStreakCount > 0 && (
-              <label className="flex items-center gap-2 text-xs text-slate-400 justify-center">
-                <input type="checkbox" checked={useSpecial} onChange={(e) => setUseSpecial(e.target.checked)} className="accent-amber-500" />
-                Use familiar's surge ability (boosted by your {activeStreakCount} active streak{activeStreakCount > 1 ? "s" : ""})
-              </label>
-            )}
-
-            {(battleLog.length > 0) && (
-              <div className="rounded-lg border border-white/10 p-3 max-h-40 overflow-y-auto space-y-1 text-xs" style={{ background: "hsl(var(--bg-h) var(--bg-s) 7%)" }}>
-                {battleLog.filter(Boolean).map((line, i) => (
-                  <div key={i} className={cn(line.side === "player" ? "text-sky-300" : line.side === "enemy" ? "text-red-300" : "text-amber-300 font-semibold")}>
-                    {line.text}
-                  </div>
-                ))}
-                <div ref={logEndRef} />
-              </div>
-            )}
-
-            {battleResult && (
-              <div className={cn("text-center text-sm font-semibold", battleResult.won ? "text-green-400" : "text-red-400")}>
-                {battleResult.won ? "Victory!" : "Defeated — Essence spent, no loss beyond that."}
-                {battleResult.gear && <span className="text-violet-300"> Found: {battleResult.gear.name}!</span>}
-              </div>
-            )}
-
-            <div className="flex items-center justify-center gap-3">
-              <Button size="lg" className="rounded-full px-8" disabled={!canAfford || battling} onClick={handleBattle} style={{ background: canAfford ? "linear-gradient(135deg, hsl(0 65% 45%), hsl(15 70% 50%))" : undefined }}>
-                {battling ? "Fighting..." : `Battle (${battleCost} Essence)`}
-              </Button>
-            </div>
-            {!canAfford && <p className="text-center text-xs text-slate-500 italic">Not enough Essence — complete more habits, quests, or focus time to earn more.</p>}
-          </CardContent>
-        </Card>
-      </div>
-
-      {rpg.battleHistory.length > 0 && (
-        <div>
-          <ArcaneDivider className="mb-3 text-slate-500 text-[10px]"><History className="w-3 h-3" /> Battle History</ArcaneDivider>
-          <div className="space-y-1.5">
-            {rpg.battleHistory.slice(0, 8).map((b: BattleRecord) => (
-              <Card key={b.id} className="border-white/5" style={{ background: "hsl(var(--bg-h) calc(var(--bg-s) * 0.8947) 10%)" }}>
-                <CardContent className="p-3 flex items-center justify-between gap-3 text-xs">
-                  <span className={cn("font-medium", b.won ? "text-green-400" : "text-red-400")}>{b.won ? "Won" : "Lost"} vs {b.enemyName}</span>
-                  <span className="text-slate-500">{new Date(b.at).toLocaleDateString([], { month: "short", day: "numeric" })}</span>
-                  {b.gearDropped && <span className="text-violet-300 truncate">{b.gearDropped}</span>}
-                </CardContent>
-              </Card>
-            ))}
+            <span className="sub" style={{ fontSize: 12 }}>{enemy.name}</span>
           </div>
         </div>
-      )}
-    </div>
-  );
-}
 
-function StatPip({ label, value, color }: { label: string; value: number; color: string }) {
-  return (
-    <div className="text-center rounded-lg border border-white/5 py-1.5" style={{ background: "hsl(var(--bg-h) calc(var(--bg-s) * 0.8947) 9%)" }}>
-      <div className="text-base font-serif font-bold" style={{ color }}>{value}</div>
-      <div className="text-[9px] text-slate-500 uppercase tracking-wide">{label}</div>
+        {activeStreakCount > 0 && (
+          <label className="flex items-center justify-center gap-2.5 sub" style={{ fontSize: 14, minHeight: 44 }}>
+            <input type="checkbox" checked={useSpecial} onChange={(e) => setUseSpecial(e.target.checked)} style={{ width: 18, height: 18, accentColor: "hsl(var(--ui-accent))" }} />
+            Use {state.familiar.name}'s surge (boosted by your {activeStreakCount} active streak{activeStreakCount > 1 ? "s" : ""})
+          </label>
+        )}
+
+        {battleLog.length > 0 && (
+          <div className="well scroll-y mt-3 p-3.5 space-y-1" style={{ maxHeight: 180, fontSize: 13 }} aria-live="polite">
+            {battleLog.filter(Boolean).map((line, i) => (
+              <div key={i} style={{ color: line.side === "player" ? "#9fd6ff" : line.side === "enemy" ? "#ffb3a8" : "hsl(var(--ui-accent))", fontWeight: line.side === "system" ? 700 : 500 }}>{line.text}</div>
+            ))}
+            <div ref={logEndRef} />
+          </div>
+        )}
+
+        {battleResult && (
+          <p className="text-center mt-3 mb-0" style={{ fontSize: 15, fontWeight: 700, color: battleResult.won ? "#8ce6c4" : "#ffb3a8" }} role="status">
+            {battleResult.won ? "Victory!" : "Defeated. The Essence is spent, nothing more is lost."}
+            {battleResult.gear && <span style={{ color: "hsl(var(--ui-accent2))" }}> Found: {battleResult.gear.name}!</span>}
+          </p>
+        )}
+
+        <div className="mt-4 flex flex-col items-center gap-2">
+          <Btn variant="primary" disabled={!canAfford || battling} onClick={handleBattle} icon={<Zap className="w-4 h-4" />}>
+            {battling ? "Fighting…" : `Battle · ${battleCost} Essence`}
+          </Btn>
+          {!canAfford && <p className="sub m-0" style={{ fontSize: 13 }}>Not enough Essence yet. Complete rituals, quests or focus time to earn more.</p>}
+        </div>
+      </section>
+
+      {rpg.battleHistory.length > 0 && (
+        <section aria-label="Battle history" className="glass" style={{ padding: "22px 24px" }}>
+          <PanelHead icon={<History className="w-4 h-4" strokeWidth={1.8} style={{ color: "var(--label)" }} />} title="Battle history" />
+          <div className="mt-2">
+            {rpg.battleHistory.slice(0, 8).map((b: BattleRecord, i: number, arr: BattleRecord[]) => (
+              <div key={b.id} className={cx("flex flex-wrap items-center gap-x-3 gap-y-1 py-3", i < arr.length - 1 && "divider")} style={{ fontSize: 14 }}>
+                <span style={{ fontWeight: 700, color: b.won ? "#8ce6c4" : "#ffb3a8" }}>{b.won ? "Won" : "Lost"}</span>
+                <span>against {b.enemyName}</span>
+                {b.gearDropped && <span className="chip" style={{ color: "hsl(var(--ui-accent2))" }}>{b.gearDropped}</span>}
+                <span className="sub ml-auto" style={{ fontSize: 13 }}>{new Date(b.at).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}</span>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
     </div>
   );
 }
 
 /* ============================== Layout ============================== */
 
-const NAV_LINKS = [
-  { id: "dashboard", label: "Sanctum", icon: LayoutDashboard, sub: "Overview" },
-  { id: "habits", label: "Grimoire", icon: Book, sub: "Rituals" },
-  { id: "tasks", label: "Quests", icon: CheckSquare, sub: "Missions" },
-  { id: "focus", label: "Focus", icon: Timer, sub: "Deep Work" },
-  { id: "health", label: "Vitality", icon: Activity, sub: "Health" },
-  { id: "fast", label: "Fast", icon: Flame, sub: "Fasting" },
-  { id: "journal", label: "Journal", icon: NotebookPen, sub: "Reflection" },
-  { id: "lofi", label: "Lofi", icon: Music, sub: "Ambience" },
-  { id: "ascent", label: "Ascent", icon: Zap, sub: "RPG" },
+const NAV_GROUPS: { label: string; links: { id: string; label: string; icon: any }[] }[] = [
+  { label: "Study", links: [
+    { id: "dashboard", label: "Sanctum", icon: LayoutGrid },
+    { id: "habits", label: "Grimoire", icon: Book },
+    { id: "tasks", label: "Quests", icon: CheckSquare },
+    { id: "focus", label: "Focus", icon: Timer },
+  ] },
+  { label: "Body & mind", links: [
+    { id: "health", label: "Vitality", icon: Activity },
+    { id: "fast", label: "Fast", icon: Moon },
+    { id: "journal", label: "Journal", icon: Pencil },
+  ] },
+  { label: "Leisure", links: [
+    { id: "lofi", label: "Lofi", icon: Music },
+    { id: "ascent", label: "Ascent", icon: Zap },
+  ] },
 ];
 
-const PARTICLES = [
-  { top: "14%", left: "72%", colorVar: "accent", size: "w-1 h-1" },
-  { top: "28%", left: "8%", colorVar: "accent2", size: "w-1 h-1" },
-  { top: "48%", left: "88%", colorVar: "accent", size: "w-0.5 h-0.5" },
-  { top: "72%", left: "5%", colorVar: "accent2", size: "w-0.5 h-0.5" },
-  { top: "85%", left: "78%", colorVar: "accent", size: "w-1 h-1" },
-  { top: "18%", left: "45%", colorVar: "accent2", size: "w-0.5 h-0.5" },
-  { top: "62%", left: "55%", colorVar: "accent", size: "w-0.5 h-0.5" },
-  { top: "38%", left: "32%", colorVar: "accent2", size: "w-1 h-1" },
-  { top: "92%", left: "40%", colorVar: "accent", size: "w-0.5 h-0.5" },
-  { top: "55%", left: "20%", colorVar: "accent2", size: "w-1 h-1" },
-];
+/** The ground and its two glows, used behind every screen. */
+function Backdrop() {
+  return (
+    <>
+      <div aria-hidden="true" className="sx-glow sx-glow-a" />
+      <div aria-hidden="true" className="sx-glow sx-glow-b" />
+    </>
+  );
+}
 
-/** Compact theme picker — row of swatch dots, always visible in the sidebar/header. */
-/* ============================== Auth Screen ============================== */
+function ThemeDots({ theme, ring = "#10111b" }: { theme: ThemePalette; ring?: string }) {
+  return (
+    <span aria-hidden="true" className="flex shrink-0">
+      <span style={{ width: 14, height: 14, borderRadius: "50%", background: `hsl(${theme.ui.accent})`, boxShadow: `0 0 0 2px ${ring}` }} />
+      <span style={{ width: 14, height: 14, marginLeft: -5, borderRadius: "50%", background: `hsl(${theme.ui.accent2})`, boxShadow: `0 0 0 2px ${ring}` }} />
+    </span>
+  );
+}
+
+/** "Theme · Amethyst" button with a menu of the five themes. */
+function ThemeMenu({ activeTheme, onSelect }: { activeTheme: ThemeId; onSelect: (id: ThemeId) => void }) {
+  const pop = usePopover();
+  const current = THEMES[activeTheme] ?? THEMES.amethyst;
+  return (
+    <div className="relative" ref={pop.ref}>
+      <button type="button" onClick={() => pop.setOpen(!pop.open)} aria-expanded={pop.open} aria-haspopup="true"
+        className="btn btn-glass btn-wide" style={{ justifyContent: "flex-start", minHeight: 48, padding: "8px 12px", gap: 10, whiteSpace: "normal", textAlign: "left", lineHeight: 1.25 }}>
+        <ThemeDots theme={current} />
+        <span>Theme · {current.label}</span>
+        <ChevronRight className="w-3.5 h-3.5 ml-auto label" aria-hidden="true" />
+      </button>
+      {pop.open && (
+        <div className="popover absolute bottom-full left-0 z-50 mb-2 p-1.5 grid grid-cols-1 gap-0.5" style={{ width: 280 }} role="menu" aria-label="Themes">
+          {(Object.values(THEMES) as ThemePalette[]).map((t) => {
+            const on = t.id === activeTheme;
+            return (
+              <button key={t.id} type="button" role="menuitemradio" aria-checked={on} onClick={() => { onSelect(t.id); pop.setOpen(false); }}
+                className="flex items-center gap-3 rounded-xl px-3 text-left hover:bg-white/5" style={{ minHeight: 52 }}>
+                <ThemeDots theme={t} ring="hsl(var(--ui-ground))" />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate" style={{ fontSize: 14, fontWeight: on ? 700 : 600, color: on ? "#fff" : "var(--text-2)" }}>{t.label}</span>
+                  <span className="block truncate sub" style={{ fontSize: 12 }}>{t.description}</span>
+                </span>
+                {on && <Check className="w-4 h-4 shrink-0" style={{ color: "hsl(var(--ui-accent))" }} aria-hidden="true" />}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const STATUS_DOT: Record<SyncStatus, string> = { synced: "#4fd1a1", syncing: "#f2c46b", offline: "#ff8a7a" };
+
+/** Website: who's signed in and whether the latest change has reached the account. */
+function AccountRow({ status, user, onSignOut }: { status: SyncStatus; user: SupabaseUser; onSignOut: () => void }) {
+  const pop = usePopover();
+  const email = user?.email ?? "";
+  const short = status === "syncing" ? "Saving…" : status === "offline" ? "Offline · will sync" : "Synced";
+  const long = status === "syncing" ? "Saving to your account…"
+    : status === "offline" ? "Offline. Changes are kept on this device and sent when you reconnect."
+    : "Everything is saved to your account.";
+  return (
+    <div className="relative" ref={pop.ref}>
+      <button type="button" onClick={() => pop.setOpen(!pop.open)} aria-expanded={pop.open} aria-label={`${long} Account menu for ${email}`} title={long}
+        className="flex w-full items-center gap-2.5 rounded-xl text-left hover:bg-white/5" style={{ padding: "6px 10px", minHeight: 48 }}>
+        <span aria-hidden="true" className="flex items-center justify-center shrink-0 display"
+          style={{ width: 34, height: 34, borderRadius: "50%", background: "#1b1c2b", border: "1px solid rgba(255,255,255,0.14)", fontSize: 18 }}>
+          {(email[0] ?? "S").toUpperCase()}
+        </span>
+        <span className="min-w-0">
+          <span className="block" style={{ fontSize: 14, fontWeight: 600, color: "#e4e6f1" }}>Signed in</span>
+          <span className="flex items-center gap-1.5 sub" style={{ fontSize: 12 }} role="status" aria-live="polite">
+            {status === "syncing"
+              ? <Loader className="w-3 h-3 animate-spin" style={{ color: STATUS_DOT.syncing }} aria-hidden="true" />
+              : <span aria-hidden="true" style={{ width: 6, height: 6, borderRadius: "50%", background: STATUS_DOT[status] }} />}
+            {short}
+          </span>
+        </span>
+      </button>
+      {pop.open && (
+        <div className="popover absolute bottom-full left-0 z-50 mb-2 p-1.5" style={{ width: 260 }}>
+          <div className="px-3 py-2.5 divider mb-1">
+            <div className="label" style={{ fontSize: 12 }}>Signed in as</div>
+            <div className="truncate" style={{ fontSize: 14, fontWeight: 600, color: "var(--text)" }}>{email}</div>
+            <div className="sub mt-1" style={{ fontSize: 12 }}>{long}</div>
+          </div>
+          <button type="button" onClick={() => { pop.setOpen(false); onSignOut(); }}
+            className="flex w-full items-center gap-2.5 rounded-xl px-3 hover:bg-white/5" style={{ minHeight: 44, fontSize: 14, color: "#ffb3a8" }}>
+            <LogOut className="w-4 h-4" aria-hidden="true" /> Sign out
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Desktop app: the study is saved in a file on this computer. */
+function LocalSaveRow({ status }: { status: SyncStatus }) {
+  const label = status === "syncing" ? "Saving…" : status === "offline" ? "Couldn't save the file" : "Saved on this computer";
+  return (
+    <div className="flex items-center gap-2.5" style={{ padding: "6px 10px", minHeight: 48 }}
+      title={`${label}. Data file: Documents/Sanctum/sanctum-data.json`}>
+      <span aria-hidden="true" className="flex items-center justify-center shrink-0" style={{ width: 34, height: 34, borderRadius: "50%", background: "#1b1c2b", border: "1px solid rgba(255,255,255,0.14)" }}>
+        <HardDrive className="w-4 h-4 label" />
+      </span>
+      <span className="min-w-0">
+        <span className="block" style={{ fontSize: 14, fontWeight: 600, color: "#e4e6f1" }}>This computer</span>
+        <span className="flex items-center gap-1.5 sub truncate" style={{ fontSize: 12 }} role="status" aria-live="polite">
+          <span aria-hidden="true" style={{ width: 6, height: 6, borderRadius: "50%", background: STATUS_DOT[status], flexShrink: 0 }} />{label}
+        </span>
+      </span>
+    </div>
+  );
+}
+
+/* ============================== Sign-in and loading ============================== */
 
 function AuthScreen() {
   const [email, setEmail] = useState("");
@@ -2932,110 +2916,63 @@ function AuthScreen() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center px-4"
-      style={{ background: "hsl(var(--bg-h) var(--bg-s) 7%)", fontFamily: "Georgia, 'Times New Roman', serif" }}>
-      <div className="w-full max-w-sm space-y-8">
-        {/* Logo */}
-        <div className="text-center">
-          <div className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4"
-            style={{ background: "linear-gradient(135deg, hsl(var(--accent-h) var(--accent-s) 30%), hsl(var(--accent-h) var(--accent-s) 52%))", boxShadow: "0 0 32px hsl(var(--accent-h) var(--accent-s) 52% / 0.4)" }}>
-            <span className="text-3xl">⚗</span>
-          </div>
-          <h1 className="text-4xl font-bold" style={{ color: "hsl(var(--accent-h) var(--accent-s) 60%)", textShadow: "0 0 40px hsl(var(--accent-h) var(--accent-s) 52% / 0.3)" }}>
-            Sanctum
-          </h1>
-          <p className="text-slate-400 italic mt-2 text-sm">Your arcane study awaits.</p>
+    <div className="sx-app relative min-h-screen flex items-center justify-center overflow-hidden px-4 py-10">
+      <Backdrop />
+      <div className="relative z-10 w-full max-w-sm flex flex-col gap-7">
+        <div className="flex flex-col items-center text-center">
+          <LogoTile size={56} />
+          <h1 className="display mt-4" style={{ fontSize: 56 }}>Sanctum</h1>
+          <p className="sub mt-2" style={{ fontSize: 15 }}>Your arcane study awaits.</p>
         </div>
 
-        {/* Card */}
-        <div className="rounded-2xl border p-7 space-y-5"
-          style={{ background: "hsl(var(--bg-h) calc(var(--bg-s) * 0.9474) 10%)", borderColor: "hsl(var(--bg-h) calc(var(--bg-s) * 0.6579) 18%)" }}>
+        <div className="glass flex flex-col gap-5" style={{ padding: "26px 26px" }}>
           {!sent ? (
             <>
               <div>
-                <h2 className="text-lg font-semibold text-white mb-1">Sign in</h2>
-                <p className="text-sm text-slate-400">
+                <h2 className="m-0" style={{ fontSize: 18, fontWeight: 700 }}>Sign in</h2>
+                <p className="sub mt-1.5 mb-0" style={{ fontSize: 14 }}>
                   {IS_DESKTOP
                     ? "Enter your email and we'll send you a sign-in code — no password needed."
                     : "Enter your email and we'll send you a sign-in link and code — no password needed."}
                 </p>
               </div>
-              <div className="space-y-3">
-                <input
-                  type="email"
-                  aria-label="Email"
-                  autoComplete="email"
-                  value={email}
-                  onChange={(e) => { setEmail(e.target.value); setError(""); }}
-                  onKeyDown={(e) => e.key === "Enter" && handleSend()}
-                  placeholder="your@email.com"
-                  autoFocus
-                  className="w-full rounded-lg border px-3 py-2.5 text-sm outline-none bg-transparent text-white placeholder:text-slate-500"
-                  style={{ borderColor: "hsl(var(--bg-h) calc(var(--bg-s) * 0.6579) 22%)", fontFamily: "system-ui, sans-serif" }}
-                />
-                {error && <p className="text-red-400 text-sm">{error}</p>}
-                <button
-                  onClick={handleSend}
-                  disabled={loading}
-                  className="w-full h-11 rounded-lg font-semibold text-sm transition-all disabled:opacity-50"
-                  style={{ background: "linear-gradient(135deg, hsl(var(--accent-h) var(--accent-s) 40%), hsl(var(--accent-h) var(--accent-s) 52%))", color: "#1a1530" }}>
-                  {loading ? "Sending…" : "Send sign-in email ✦"}
-                </button>
+              <div className="flex flex-col gap-3">
+                <label htmlFor="auth-email" className="sr-only-x">Email</label>
+                <input id="auth-email" type="email" aria-label="Email" autoComplete="email" autoFocus className="field" placeholder="you@example.com"
+                  value={email} onChange={(e) => { setEmail(e.target.value); setError(""); }} onKeyDown={(e) => e.key === "Enter" && handleSend()} />
+                {error && <p className="m-0" style={{ color: "#ffb3a8", fontSize: 14 }} role="alert">{error}</p>}
+                <Btn variant="primary" wide onClick={handleSend} disabled={loading}>{loading ? "Sending…" : "Send sign-in email"}</Btn>
               </div>
-              <p className="text-xs text-slate-500 text-center">
-                First time? An account is created automatically.
-              </p>
+              <p className="label m-0 text-center" style={{ fontSize: 12 }}>First time? An account is created automatically.</p>
             </>
           ) : (
-            <div className="space-y-4">
-              <div className="text-center space-y-2">
-                <div className="text-4xl">✉️</div>
-                <h2 className="text-lg font-semibold text-white">Check your email</h2>
-                <p className="text-sm text-slate-400">
+            <>
+              <div className="text-center">
+                <span aria-hidden="true" className="icon-tile mx-auto" style={{ width: 44, height: 44, borderRadius: 14 }}><Mail className="w-5 h-5" style={{ color: "hsl(var(--ui-accent))" }} /></span>
+                <h2 className="mt-3 mb-0" style={{ fontSize: 18, fontWeight: 700 }}>Check your email</h2>
+                <p className="sub mt-1.5 mb-0" style={{ fontSize: 14 }}>
                   {IS_DESKTOP ? "We sent a sign-in code to " : "We sent a sign-in link and code to "}
-                  <span className="text-amber-300">{email}</span>.
+                  <span style={{ color: "hsl(var(--ui-accent))" }}>{email}</span>.
                   {IS_DESKTOP ? " Type the code here." : " Click the link, or type the code here."}
                 </p>
               </div>
-              <div className="space-y-3">
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  autoComplete="one-time-code"
-                  aria-label="Sign-in code"
-                  value={code}
-                  onChange={(e) => { setCode(e.target.value); setError(""); }}
-                  onKeyDown={(e) => e.key === "Enter" && handleVerify()}
-                  placeholder="Sign-in code"
-                  maxLength={12}
-                  autoFocus
-                  className="w-full rounded-lg border px-3 py-2.5 text-center text-lg tracking-[0.3em] outline-none bg-transparent text-white placeholder:text-slate-500 placeholder:tracking-normal placeholder:text-sm"
-                  style={{ borderColor: "hsl(var(--bg-h) calc(var(--bg-s) * 0.6579) 22%)", fontFamily: "system-ui, sans-serif" }}
-                />
-                {error && <p className="text-red-400 text-sm">{error}</p>}
-                <button
-                  onClick={handleVerify}
-                  disabled={verifying}
-                  className="w-full h-11 rounded-lg font-semibold text-sm transition-all disabled:opacity-50"
-                  style={{ background: "linear-gradient(135deg, hsl(var(--accent-h) var(--accent-s) 40%), hsl(var(--accent-h) var(--accent-s) 52%))", color: "#1a1530" }}>
-                  {verifying ? "Signing in…" : "Sign in"}
-                </button>
+              <div className="flex flex-col gap-3">
+                <label htmlFor="auth-code" className="sr-only-x">Sign-in code</label>
+                <input id="auth-code" type="text" inputMode="numeric" autoComplete="one-time-code" aria-label="Sign-in code" maxLength={12} autoFocus
+                  className="field text-center tnum" style={{ fontSize: 20, letterSpacing: "0.3em" }} placeholder="Sign-in code"
+                  value={code} onChange={(e) => { setCode(e.target.value); setError(""); }} onKeyDown={(e) => e.key === "Enter" && handleVerify()} />
+                {error && <p className="m-0" style={{ color: "#ffb3a8", fontSize: 14 }} role="alert">{error}</p>}
+                <Btn variant="primary" wide onClick={handleVerify} disabled={verifying}>{verifying ? "Signing in…" : "Sign in"}</Btn>
               </div>
-              <div className="flex items-center justify-between gap-3 text-xs">
-                <button onClick={() => { setSent(false); setCode(""); setError(""); setResent(false); }}
-                  className="min-h-[44px] text-slate-500 underline hover:text-slate-300 transition-colors">
-                  Use a different email
-                </button>
-                <button onClick={handleSend} disabled={loading}
-                  className="min-h-[44px] text-slate-500 underline hover:text-slate-300 transition-colors disabled:opacity-50">
-                  {loading ? "Sending…" : resent ? "Sent again" : "Send a new email"}
-                </button>
+              <div className="flex items-center justify-between gap-3">
+                <Btn variant="quiet" size="sm" onClick={() => { setSent(false); setCode(""); setError(""); setResent(false); }}>Use a different email</Btn>
+                <Btn variant="quiet" size="sm" onClick={handleSend} disabled={loading}>{loading ? "Sending…" : resent ? "Sent again" : "Send a new email"}</Btn>
               </div>
-            </div>
+            </>
           )}
         </div>
 
-        <p className="text-center text-xs text-slate-600">Your data syncs across all your devices.</p>
+        <p className="label text-center m-0" style={{ fontSize: 12 }}>Your study syncs across all your devices.</p>
       </div>
     </div>
   );
@@ -3044,132 +2981,18 @@ function AuthScreen() {
 /** Full-screen message shown while starting up. */
 function StudySplash({ message, onSignOut }: { message: string; onSignOut?: () => void }) {
   return (
-    <div style={{ background: "hsl(var(--bg-h) var(--bg-s) 7%)", minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: "0 24px", fontFamily: "Georgia, serif", color: "hsl(var(--accent-h) var(--accent-s) 58%)" }}>
-      <div style={{ textAlign: "center", maxWidth: 360 }}>
-        <div style={{ fontSize: "2rem", marginBottom: "0.5rem" }}>⚗</div>
-        <div role="status" style={{ fontSize: "0.85rem", color: "#94a3b8" }}>{message}</div>
-        {onSignOut && (
-          <button onClick={onSignOut} style={{ marginTop: 16, minHeight: 44, padding: "0 16px", background: "transparent", border: "1px solid hsl(var(--bg-h) calc(var(--bg-s) * 0.6579) 22%)", borderRadius: 8, color: "#94a3b8", fontSize: "0.8rem", cursor: "pointer" }}>
-            Sign out
-          </button>
-        )}
+    <div className="sx-app relative min-h-screen flex items-center justify-center overflow-hidden px-6">
+      <Backdrop />
+      <div className="relative z-10 flex flex-col items-center gap-4 text-center" style={{ maxWidth: 380 }}>
+        <LogoTile size={56} />
+        <div role="status" className="sub" style={{ fontSize: 15 }}>{message}</div>
+        {onSignOut && <Btn variant="glass" onClick={onSignOut}>Sign out</Btn>}
       </div>
     </div>
   );
 }
 
-/** Desktop-only indicator: the installed app has no account or cloud dependency. */
-function LocalSaveIndicator({ status }: { status: SyncStatus }) {
-  const label = status === "syncing"
-    ? "Saving to this PC…"
-    : status === "offline"
-    ? "Couldn't save the data file — check folder permissions"
-    : "Saved on this PC";
-  const Icon = status === "syncing" ? Loader : status === "offline" ? WifiOff : HardDrive;
-  return (
-    <div
-      title={`${label}. Data file: Documents/Sanctum/sanctum-data.json`}
-      className="flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs"
-      style={{ color: status === "syncing" ? "#f59e0b" : status === "offline" ? "#f87171" : "#34d399" }}
-      role="status"
-      aria-live="polite"
-    >
-      <Icon className={`w-3 h-3 shrink-0 ${status === "syncing" ? "animate-spin" : ""}`} />
-      <span className="truncate" style={{ color: "#94a3b8" }}>{label}</span>
-    </div>
-  );
-}
-
-/** Small sync status pill shown in the sidebar. */
-function SyncIndicator({ status, user, onSignOut }: { status: SyncStatus; user: SupabaseUser; onSignOut: () => void }) {
-  const [showMenu, setShowMenu] = useState(false);
-  const statusLabel =
-    status === "syncing" ? "Saving to your account…"
-    : status === "offline" ? "Offline — changes are kept on this device and sent when you reconnect"
-    : "Saved to your account";
-  return (
-    <div className="relative">
-      <button
-        onClick={() => setShowMenu((v) => !v)}
-        title={statusLabel}
-        aria-label={`${statusLabel}. Account menu for ${user?.email ?? "you"}`}
-        className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs hover:bg-white/5 transition-colors"
-        style={{ color: status === "syncing" ? "#f59e0b" : status === "offline" ? "#f87171" : "#34d399" }}>
-        {status === "syncing"
-          ? <Loader className="w-3 h-3 animate-spin shrink-0" />
-          : status === "offline"
-          ? <WifiOff className="w-3 h-3 shrink-0" />
-          : <Wifi className="w-3 h-3 shrink-0" />}
-        <span className="flex-1 text-left truncate" style={{ color: "#94a3b8" }}>
-          {user?.email}
-        </span>
-      </button>
-      {showMenu && (
-        <div className="absolute bottom-full mb-1 left-0 right-0 rounded-lg border p-1"
-          style={{ background: "hsl(var(--bg-h) calc(var(--bg-s) * 0.9474) 11%)", borderColor: "hsl(var(--bg-h) calc(var(--bg-s) * 0.6579) 18%)", boxShadow: "0 8px 24px rgba(0,0,0,0.5)" }}>
-          <div className="px-2.5 py-1.5 text-[11px] text-slate-500 border-b mb-1" style={{ borderColor: "hsl(var(--bg-h) calc(var(--bg-s) * 0.6579) 16%)" }}>
-            Signed in as<br />
-            <span className="text-slate-300 font-medium">{user?.email}</span>
-            <div className="mt-1">{statusLabel}</div>
-          </div>
-          <button
-            onClick={() => { setShowMenu(false); onSignOut(); }}
-            className="w-full flex items-center gap-2 px-2.5 py-2 rounded-md text-xs text-red-400 hover:bg-red-500/10 transition-colors">
-            <LogOut className="w-3.5 h-3.5" /> Sign out
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function ThemeSwitcher({ activeTheme, onSelect, compact = false }: { activeTheme: ThemeId; onSelect: (id: ThemeId) => void; compact?: boolean }) {
-  const [open, setOpen] = useState(false);
-  const current = THEMES[activeTheme] ?? THEMES.amethyst;
-
-  if (compact) {
-    return (
-      <div className="flex items-center justify-center gap-2 py-1.5">
-        {(Object.values(THEMES) as ThemePalette[]).map((t) => (
-          <button key={t.id} onClick={() => onSelect(t.id)} title={t.label}
-            className={cn("w-5 h-5 rounded-full border-2 transition-transform", activeTheme === t.id ? "scale-110 border-white/70" : "border-transparent hover:scale-105")}
-            style={{ background: t.swatch }} />
-        ))}
-      </div>
-    );
-  }
-
-  return (
-    <div className="relative">
-      <button onClick={() => setOpen((v) => !v)}
-        className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg border text-xs transition-colors hover:bg-white/5 overflow-hidden"
-        style={{ borderColor: `hsl(${current.vars.border})` }}>
-        <span className="w-3 h-3 rounded-full shrink-0" style={{ background: current.swatch }} />
-        <span className="text-slate-300 flex-1 text-left truncate">{current.label}</span>
-        <span className="text-slate-500 text-[10px] shrink-0">Theme</span>
-      </button>
-      {open && (
-        <div
-          className="absolute z-30 bottom-full mb-1.5 rounded-lg border p-1 grid gap-0.5"
-          style={{
-            left: 0, right: 0, // stay inside the parent container width
-            background: `hsl(${current.vars.bgPanel})`,
-            borderColor: `hsl(${current.vars.border})`,
-            boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
-          }}>
-          {(Object.values(THEMES) as ThemePalette[]).map((t) => (
-            <button key={t.id} onClick={() => { onSelect(t.id); setOpen(false); }}
-              className="flex items-center gap-2 px-2 py-1.5 rounded-md text-left hover:bg-white/5 transition-colors w-full overflow-hidden">
-              <span className="w-3 h-3 rounded-full shrink-0" style={{ background: t.swatch, boxShadow: activeTheme === t.id ? `0 0 6px hsl(${t.vars.accent} / 0.6)` : "none" }} />
-              <span className={cn("text-xs truncate flex-1", activeTheme === t.id ? "text-white font-medium" : "text-slate-300")}>{t.label}</span>
-              {activeTheme === t.id && <Check className="w-3 h-3 shrink-0 text-slate-400" />}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
+/* ============================== The app ============================== */
 
 export default function SanctumApp() {
   // ── Auth state ──────────────────────────────────────────────────────────────
@@ -3183,7 +3006,7 @@ export default function SanctumApp() {
       return;
     }
     let mounted = true;
-    // Browser version retains account sign-in and cross-device sync.
+    // The website keeps account sign-in and cross-device sync.
     supabase.auth.getSession().then(({ data }) => {
       if (!mounted) return;
       setUser(data.session?.user ?? null);
@@ -3209,22 +3032,27 @@ export default function SanctumApp() {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [dragonBounce, setDragonBounce] = useState(false);
   const [petted, setPetted] = useState(false);
-  const prevCompletionsRef = useRef({ habits: 0, tasksDone: 0 });
+  const [focusRequest, setFocusRequest] = useState<FocusRequest>(null);
+  const mainRef = useRef<HTMLElement>(null);
+  const prevCompletionsRef = useRef<{ habits: number; tasksDone: number } | null>(null);
   const theme = THEMES[(state.theme as ThemeId) ?? "amethyst"] ?? THEMES.amethyst;
+  const accentHue = hslParts(theme.ui.accent)[0];
 
   // Trigger a cheer bounce whenever a habit completion or task completion count increases.
   useEffect(() => {
     const habitsCount = state.habitCompletions.length;
     const tasksDoneCount = state.tasks.filter((t: Task) => t.status === "done").length;
     const prev = prevCompletionsRef.current;
-    if (habitsCount > prev.habits || tasksDoneCount > prev.tasksDone) {
+    // The first counts after the study opens (or loads from the account) are a baseline, not a celebration.
+    if (!ready) return;
+    if (prev && (habitsCount > prev.habits || tasksDoneCount > prev.tasksDone)) {
       setDragonBounce(true);
       const timeout = setTimeout(() => setDragonBounce(false), 750);
       prevCompletionsRef.current = { habits: habitsCount, tasksDone: tasksDoneCount };
       return () => clearTimeout(timeout);
     }
     prevCompletionsRef.current = { habits: habitsCount, tasksDone: tasksDoneCount };
-  }, [state.habitCompletions, state.tasks]);
+  }, [state.habitCompletions, state.tasks, ready]);
 
   const handlePetFamiliar = useCallback(() => {
     setState((s: any) => ({ ...s, familiar: { ...s.familiar, affection: (s.familiar.affection ?? 0) + 1 } }));
@@ -3252,10 +3080,20 @@ export default function SanctumApp() {
     });
   }, [state.habitCompletions, state.tasks, state.focusSessions, setState]);
 
+  const goTo = useCallback((next: string) => {
+    setPage(next);
+    setMobileNavOpen(false);
+    mainRef.current?.scrollTo({ top: 0 });
+  }, []);
+  const startFocus = useCallback((minutes: number) => {
+    setFocusRequest({ minutes, nonce: Date.now() });
+    goTo("focus");
+  }, [goTo]);
+
   // ── Auth gates ──────────────────────────────────────────────────────────────
   // IMPORTANT: these early returns must come AFTER every hook above, or React
   // throws error #310 (hook count mismatch between renders).
-  if (authLoading) return <StudySplash message="awakening the study…" />;
+  if (authLoading) return <StudySplash message="Awakening the study…" />;
   if (!IS_DESKTOP && !user) return <AuthScreen />;
   if (!ready) {
     return syncStatus === "offline" ? (
@@ -3264,7 +3102,7 @@ export default function SanctumApp() {
         onSignOut={handleSignOut}
       />
     ) : (
-      <StudySplash message="opening your study…" />
+      <StudySplash message="Opening your study…" />
     );
   }
 
@@ -3274,162 +3112,104 @@ export default function SanctumApp() {
     ? "petted"
     : dragonBounce
     ? "cheer"
-    : page === "habits"
+    : page === "habits" || page === "journal"
     ? "reading"
-    : page === "tasks"
+    : page === "tasks" || page === "ascent"
     ? "questing"
     : page === "focus"
     ? "focusing"
     : page === "health"
     ? "tending"
-    : page === "journal"
-    ? "reading"
-    : page === "ascent"
-    ? "questing"
     : page === "fast"
     ? (hasActiveFast ? "sleeping" : "idle")
     : "idle";
+
+  const setTheme = (id: ThemeId) => setState((s: any) => ({ ...s, theme: id }));
 
   const renderPage = () => {
     switch (page) {
       case "habits": return <HabitsPage state={state} setState={setState} />;
       case "tasks": return <TasksPage state={state} setState={setState} />;
-      case "focus": return <FocusPage state={state} setState={setState} />;
+      case "focus": return <FocusPage state={state} setState={setState} request={focusRequest} onRequestHandled={() => setFocusRequest(null)} />;
       case "health": return <HealthPage state={state} setState={setState} />;
       case "fast": return <FastingPage state={state} setState={setState} />;
       case "journal": return <JournalPage state={state} setState={setState} />;
       case "lofi": return <LofiPlayer />;
       case "ascent": return <AscentPage state={state} setState={setState} />;
-      default: return <DashboardPage state={state} setState={setState} dragonPose={dragonPose} dragonBounce={dragonBounce || petted} onPetFamiliar={handlePetFamiliar} />;
+      default: return (
+        <DashboardPage state={state} setState={setState} dragonPose={dragonPose} dragonBounce={dragonBounce || petted}
+          onPetFamiliar={handlePetFamiliar} onNavigate={goTo} onStartFocus={startFocus} accentHue={accentHue} />
+      );
     }
   };
 
+  const account = IS_DESKTOP
+    ? <LocalSaveRow status={syncStatus} />
+    : user ? <AccountRow status={syncStatus} user={user} onSignOut={handleSignOut} /> : null;
+
+  const navGroups = (onPick: (id: string) => void) => NAV_GROUPS.map((group) => (
+    <div key={group.label} className="flex flex-col gap-[3px]">
+      <div className="eyebrow" style={{ padding: "0 12px 6px" }}>{group.label}</div>
+      {group.links.map((link) => {
+        const Icon = link.icon;
+        const active = page === link.id;
+        return (
+          <button key={link.id} type="button" className="nav-btn" aria-current={active ? "page" : undefined} onClick={() => onPick(link.id)}>
+            <Icon className="w-[18px] h-[18px] shrink-0" strokeWidth={1.7} aria-hidden="true" />
+            {link.label}
+            {active && <span aria-hidden="true" className="nav-dot" />}
+          </button>
+        );
+      })}
+    </div>
+  ));
+
   return (
-    <div className="min-h-screen flex" style={{ background: `hsl(${theme.vars.bg})`, color: "#e2e8f0", fontFamily: "Georgia, 'Times New Roman', serif" }}>
-      <style>{`
-        :root {
-          ${themeCssVars(theme)}
-        }
-        .font-serif { font-family: Georgia, 'Times New Roman', serif; }
-        @keyframes fade-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
-        .animate-in { animation: fade-in 0.4s ease-out; }
-        input::placeholder { color: #64748b; }
-        input { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+    <div className="sx-app relative flex h-screen overflow-hidden md:gap-[18px] md:p-[18px]">
+      <style>{`:root {\n${themeCssVars(theme)}\n}`}</style>
+      <Backdrop />
 
-        @keyframes dragon-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-4px); } }
-        .dragon-float { animation: dragon-float 3.2s ease-in-out infinite; }
-        @keyframes dragon-breathe { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.035); } }
-        .dragon-breathe { animation: dragon-breathe 2.6s ease-in-out infinite; }
-        @keyframes dragon-bounce-kf {
-          0% { transform: scale(1) translateY(0) rotate(0deg); }
-          25% { transform: scale(1.18) translateY(-10px) rotate(-6deg); }
-          50% { transform: scale(1.05) translateY(-2px) rotate(4deg); }
-          75% { transform: scale(1.12) translateY(-6px) rotate(-2deg); }
-          100% { transform: scale(1) translateY(0) rotate(0deg); }
-        }
-        .dragon-bounce { animation: dragon-bounce-kf 0.7s ease-out; }
-        @keyframes dragon-wing-flap-kf { 0%, 100% { opacity: 0.85; } 50% { opacity: 1; transform: scaleY(1.15); } }
-        .dragon-wing-flap { animation: dragon-wing-flap-kf 0.5s ease-in-out infinite; transform-origin: center; }
-        @keyframes dragon-zzz-kf { 0% { opacity: 0; transform: translateY(0); } 50% { opacity: 1; } 100% { opacity: 0; transform: translateY(-8px); } }
-        .dragon-zzz { animation: dragon-zzz-kf 2.4s ease-in-out infinite; }
-        @keyframes dragon-sparkle-kf { 0%, 100% { opacity: 0.4; transform: scale(0.9); } 50% { opacity: 1; transform: scale(1.2); } }
-        .dragon-sparkle { animation: dragon-sparkle-kf 0.8s ease-in-out infinite; }
-      `}</style>
-
-      {/* Ambient background */}
-      <div className="pointer-events-none fixed inset-0 z-0 overflow-hidden">
-        <div className="absolute top-[10%] left-[20%] w-[500px] h-[500px] rounded-full opacity-[0.06]" style={{ background: `radial-gradient(circle, hsl(${theme.vars.accent}) 0%, transparent 70%)`, filter: "blur(60px)" }} />
-        <div className="absolute top-[55%] right-[10%] w-96 h-96 rounded-full opacity-[0.08]" style={{ background: `radial-gradient(circle, hsl(${theme.vars.accent2}) 0%, transparent 70%)`, filter: "blur(56px)" }} />
-        <div className="absolute bottom-[15%] left-[38%] w-72 h-72 rounded-full opacity-[0.05]" style={{ background: `radial-gradient(circle, hsl(${theme.vars.accent2}) 0%, transparent 70%)`, filter: "blur(40px)" }} />
-        {PARTICLES.map((p, i) => (
-          <div key={i} className={cn("absolute rounded-full", p.size)} style={{ top: p.top, left: p.left, background: p.colorVar === "accent" ? `hsl(${theme.vars.accent})` : `hsl(${theme.vars.accent2})`, boxShadow: `0 0 6px 1px ${p.colorVar === "accent" ? `hsl(${theme.vars.accent})` : `hsl(${theme.vars.accent2})`}` }} />
-        ))}
-      </div>
-
-      {/* Sidebar (desktop) */}
-      <aside className="w-60 border-r flex-col hidden md:flex relative z-10" style={{ borderColor: `hsl(${theme.vars.border})`, background: `hsl(${theme.vars.bgPanel})`, boxShadow: "4px 0 32px rgba(0,0,0,0.4)" }}>
-        <div className="absolute top-0 left-0 right-0 h-px pointer-events-none" style={{ background: `linear-gradient(90deg, transparent, hsl(${theme.vars.accent} / 0.5), transparent)` }} />
-        <div className="absolute top-0 left-0 right-0 h-40 pointer-events-none" style={{ background: `radial-gradient(ellipse at 50% -10%, hsl(${theme.vars.accent} / 0.10) 0%, transparent 70%)` }} />
-        <div className="p-5 relative border-b" style={{ borderColor: `hsl(${theme.vars.border} / 0.6)` }}>
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: `linear-gradient(135deg, hsl(${theme.vars.accentDeep}), hsl(${theme.vars.accent}))`, boxShadow: `0 0 16px hsl(${theme.vars.accent} / 0.45)` }}>
-              <span className="text-sm">⚗</span>
-            </div>
-            <div>
-              <h1 className="text-lg font-serif font-bold leading-none" style={{ color: `hsl(${theme.vars.accentSoft})`, textShadow: `0 0 20px hsl(${theme.vars.accent} / 0.4)` }}>Sanctum</h1>
-              <p className="text-[9px] tracking-[0.18em] text-slate-500 mt-0.5 uppercase">Your Arcane Study</p>
-            </div>
-          </div>
+      {/* Sidebar (tablet and up) */}
+      <aside className="glass relative z-20 hidden md:flex shrink-0 flex-col" style={{ width: 248, padding: "22px 14px 18px", gap: 22 }}>
+        <div className="flex items-center gap-3" style={{ padding: "0 6px" }}>
+          <LogoTile />
+          <div className="display" style={{ fontSize: 28 }}>Sanctum</div>
         </div>
-        <nav className="flex-1 px-2.5 py-4 space-y-0.5">
-          {NAV_LINKS.map((link) => {
-            const Icon = link.icon;
-            const active = page === link.id;
-            return (
-              <button key={link.id} onClick={() => setPage(link.id)}
-                className={cn("w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 relative text-left", !active && "text-slate-400 hover:text-slate-200")}
-                style={active ? { color: `hsl(${theme.vars.accentSoft})`, fontWeight: 600, background: `linear-gradient(135deg, hsl(${theme.vars.accent} / 0.12), hsl(${theme.vars.accent2} / 0.06))`, borderLeft: `2px solid hsl(${theme.vars.accent} / 0.7)` } : {}}>
-                <Icon className="w-4 h-4 shrink-0" />
-                <span className="text-sm">{link.label}</span>
-                {active && <div className="ml-auto w-1.5 h-1.5 rounded-full shrink-0" style={{ background: `hsl(${theme.vars.accent})`, boxShadow: `0 0 6px hsl(${theme.vars.accent})` }} />}
-              </button>
-            );
-          })}
-        </nav>
-        <div className="px-3 pb-3 space-y-2">
-          {IS_DESKTOP
-            ? <LocalSaveIndicator status={syncStatus} />
-            : user ? <SyncIndicator status={syncStatus} user={user} onSignOut={handleSignOut} /> : null}
-          <ThemeSwitcher activeTheme={state.theme} onSelect={(id) => setState((s: any) => ({ ...s, theme: id }))} />
-        </div>
-        <div className="p-4 border-t mt-auto" style={{ borderColor: `hsl(${theme.vars.border} / 0.4)` }}>
-          <div className="flex items-center justify-center gap-3">
-            <div className="flex-1 h-px" style={{ background: `linear-gradient(90deg, transparent, hsl(${theme.vars.accent} / 0.2))` }} />
-            <span className="text-xs select-none" style={{ color: `hsl(${theme.vars.accent} / 0.5)` }}>✦</span>
-            <span className="text-xs select-none" style={{ color: `hsl(${theme.vars.accent2} / 0.5)` }}>✦</span>
-            <span className="text-xs select-none" style={{ color: `hsl(${theme.vars.accent} / 0.5)` }}>✦</span>
-            <div className="flex-1 h-px" style={{ background: `linear-gradient(90deg, hsl(${theme.vars.accent} / 0.2), transparent)` }} />
-          </div>
+        <nav aria-label="Sanctum sections" className="flex min-h-0 flex-1 flex-col gap-[22px] scroll-y">{navGroups(goTo)}</nav>
+        <div className="flex flex-col gap-2.5">
+          <ThemeMenu activeTheme={state.theme} onSelect={setTheme} />
+          {account}
         </div>
       </aside>
 
-      {/* Main */}
-      <main className="flex-1 flex flex-col h-screen overflow-hidden relative z-10">
-        {/* Mobile header */}
-        <header className="h-14 border-b backdrop-blur-sm flex items-center px-4 md:hidden justify-between" style={{ borderColor: `hsl(${theme.vars.border})`, background: `hsl(${theme.vars.bgPanel} / 0.8)` }}>
-          <div className="flex items-center">
-            <span className="mr-2 text-lg">⚗</span>
-            <h1 className="text-xl font-serif font-bold" style={{ color: `hsl(${theme.vars.accentSoft})` }}>Sanctum</h1>
+      <div className="relative z-10 flex min-w-0 flex-1 flex-col">
+        {/* Top bar (phones) */}
+        <header className="md:hidden relative z-30 m-3 mb-0 glass flex items-center justify-between" style={{ padding: "10px 10px 10px 14px", borderRadius: 18 }}>
+          <div className="flex items-center gap-2.5">
+            <LogoTile size={34} />
+            <span className="display" style={{ fontSize: 24 }}>Sanctum</span>
           </div>
-          <button onClick={() => setMobileNavOpen((v) => !v)} className="p-2 text-slate-400">
-            <Menu className="w-5 h-5" />
-          </button>
+          <Btn variant="quiet" aria-label={mobileNavOpen ? "Close menu" : "Open menu"} aria-expanded={mobileNavOpen}
+            icon={mobileNavOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />} onClick={() => setMobileNavOpen((v) => !v)} />
         </header>
         {mobileNavOpen && (
-          <div className="md:hidden border-b grid grid-cols-3 gap-1 p-2" style={{ borderColor: `hsl(${theme.vars.border})`, background: `hsl(${theme.vars.bgPanel})` }}>
-            {NAV_LINKS.map((link) => {
-              const Icon = link.icon;
-              const active = page === link.id;
-              return (
-                <button key={link.id} onClick={() => { setPage(link.id); setMobileNavOpen(false); }}
-                  className="flex flex-col items-center gap-1 py-2.5 rounded-lg text-xs"
-                  style={active ? { color: `hsl(${theme.vars.accentSoft})`, background: `hsl(${theme.vars.accent} / 0.1)` } : { color: "#94a3b8" }}>
-                  <Icon className="w-4 h-4" />
-                  {link.label}
-                </button>
-              );
-            })}
-            <div className="col-span-3 pt-1">
-              <ThemeSwitcher activeTheme={state.theme} onSelect={(id) => setState((s: any) => ({ ...s, theme: id }))} compact />
+          <div className="md:hidden relative z-30 mx-3 mt-2 glass flex flex-col gap-5 scroll-y" style={{ padding: "18px 12px", maxHeight: "75vh", borderRadius: 18 }}>
+            <nav aria-label="Sanctum sections" className="grid gap-5 sm:grid-cols-3">{navGroups(goTo)}</nav>
+            <div className="flex flex-col gap-2.5">
+              <ThemeMenu activeTheme={state.theme} onSelect={setTheme} />
+              {account}
             </div>
           </div>
         )}
-        <div className="flex-1 overflow-auto p-6 lg:p-10">
-          <div className="max-w-4xl mx-auto">{renderPage()}</div>
-        </div>
-      </main>
 
-      <DragonCorner pose={dragonPose} bounce={dragonBounce || petted} familiar={state.familiar} onPet={handlePetFamiliar} />
+        <main ref={mainRef} className="flex-1 min-h-0 scroll-y">
+          <div className="mx-auto w-full px-3 pt-3 pb-28 md:px-1.5 md:pt-0" style={{ maxWidth: 1180 }}>{renderPage()}</div>
+        </main>
+      </div>
+
+      {page !== "dashboard" && (
+        <DragonCorner pose={dragonPose} bounce={dragonBounce || petted} familiar={state.familiar} onPet={handlePetFamiliar} accentHue={accentHue} />
+      )}
     </div>
   );
 }

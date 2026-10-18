@@ -10,7 +10,7 @@
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   /* the theme's background (set by the app; Amethyst until then) */
-  background: hsl(var(--bg, 228 38% 7%));
+  background: hsl(var(--ui-ground, 233 33% 5%));
 }
 
 * { box-sizing: border-box; }
