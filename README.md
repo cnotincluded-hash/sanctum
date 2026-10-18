@@ -30,7 +30,7 @@ done × 20)`, leveling every 100 XP.
 - Vite
 - Tailwind CSS
 - [lucide-react](https://lucide.dev/) for icons
-- No backend — all data is stored in the browser's `localStorage`
+- No backend — all data is stored in the browser's `localStorage` or a folder if the app in being used.
 
 This is a fully client-side app. There's no server, no database, and no
 account system; everything you track stays on the device and in the browser
